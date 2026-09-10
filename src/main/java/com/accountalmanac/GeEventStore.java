@@ -40,7 +40,11 @@ class GeEventStore
 	@Inject
 	GeEventStore(Gson gson, ScheduledExecutorService executor)
 	{
-		this.gson = gson.newBuilder().setPrettyPrinting().create();
+		// Not pretty-printed, unlike the other two stores. This file is the one
+		// that grows without bound, it is only ever read by code, and the
+		// indentation costs about a third of its size - 100 MB of whitespace at
+		// the upper end of the configurable range.
+		this.gson = gson;
 		this.executor = executor;
 		this.dataFile = new File(new File(RuneLite.RUNELITE_DIR, "accountalmanac"), FILE_NAME);
 	}

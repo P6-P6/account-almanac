@@ -20,6 +20,17 @@ public enum NamePrivacy
 	REAL("Show real names"),
 
 	/**
+	 * Masks the login name and label but leaves the character's display name
+	 * alone. The display name is public in game - anyone standing next to you
+	 * sees it - whereas the login name identifies the person behind the
+	 * account. This hides the half that actually matters.
+	 */
+	LOGIN_ONLY("Hide login names only"),
+
+	/** Every name replaced with asterisks. */
+	ASTERISKS("Masked (*****)"),
+
+	/**
 	 * A stable stand-in name per account. Stable matters: a name that changed
 	 * between renders would make charts and tables impossible to follow, which
 	 * would defeat the purpose rather than just hiding.
@@ -45,5 +56,14 @@ public enum NamePrivacy
 	boolean isMasked()
 	{
 		return this != REAL;
+	}
+
+	/**
+	 * Whether the character's display name is masked as well as the login
+	 * fields. {@link #LOGIN_ONLY} deliberately leaves it visible.
+	 */
+	boolean masksDisplayName()
+	{
+		return this != REAL && this != LOGIN_ONLY;
 	}
 }

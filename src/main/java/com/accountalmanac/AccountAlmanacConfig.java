@@ -142,6 +142,17 @@ public interface AccountAlmanacConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "dateFormat",
+		name = "Date format",
+		description = "How dates and times are written. Always your PC's local clock.",
+		position = 7
+	)
+	default DateFormatMode dateFormat()
+	{
+		return DateFormatMode.ISO;
+	}
+
+	@ConfigItem(
 		keyName = "refreshPricesOnStartup",
 		name = "Reprice on start-up",
 		description = "Re-price every stored bank and Grand Exchange offer against current prices when the client starts. Snapshots are taken whenever a bank happened to be open, so without this the totals compare prices from different days.",
@@ -194,13 +205,13 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "statGainFormat",
 		name = "Stat gains and XP",
-		description = "How experience totals and gains are written. Defaults to full digits, since XP is normally compared exactly rather than approximately.",
+		description = "How experience totals and gains are written.",
 		position = 13,
 		section = numbersSection
 	)
 	default NumberFormatMode statGainFormat()
 	{
-		return NumberFormatMode.FULL_WITH_COMMAS;
+		return NumberFormatMode.ABBREVIATED;
 	}
 
 	@ConfigItem(
@@ -367,18 +378,6 @@ public interface AccountAlmanacConfig extends Config
 		return false;
 	}
 
-	@ConfigItem(
-		keyName = "remindIncludeBanned",
-		name = "Include banned",
-		description = "Include accounts marked banned in login reminders. Off by default, since there is nothing to log into.",
-		position = 35,
-		section = remindersSection
-	)
-	default boolean remindIncludeBanned()
-	{
-		return false;
-	}
-
 	// ------------------------------------------------------------------
 	// History and backups
 	// ------------------------------------------------------------------
@@ -455,14 +454,14 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "maxGeEvents",
 		name = "Events to keep",
-		description = "Oldest events beyond this many are dropped. Purchase and sale history are read from this log, so a larger number keeps history reaching further back.",
+		description = "Oldest events beyond this many are dropped. Purchase and sale history read from this log, so a larger number reaches further back. Roughly 235 bytes each, so 100,000 is about 22 MB and the 500,000 ceiling about 112 MB. The default suits one or two accounts for years; raise it if you play many accounts heavily. The whole log is held in memory and rewritten on every save, which is what sets the ceiling.",
 		position = 52,
 		section = geSection
 	)
-	@Range(min = 500, max = 200000)
+	@Range(min = 500, max = 500000)
 	default int maxGeEvents()
 	{
-		return 20000;
+		return 100000;
 	}
 
 	// ------------------------------------------------------------------

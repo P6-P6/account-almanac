@@ -28,12 +28,19 @@ final class NameMasker
 	private static final String[] ADJECTIVES = {
 		"Iron", "Swift", "Grim", "Bold", "Runic", "Ancient", "Silent", "Cursed",
 		"Golden", "Frozen", "Shadow", "Wild", "Noble", "Rusty", "Sacred", "Crimson",
+		"Molten", "Hollow", "Gilded", "Savage", "Weary", "Restless", "Feral", "Solemn",
+		"Vagrant", "Emerald", "Obsidian", "Thorned", "Stormy", "Dusty", "Lucky", "Grizzled",
 	};
 
 	private static final String[] NOUNS = {
 		"Falcon", "Warden", "Ranger", "Sage", "Reaver", "Scout", "Herald", "Knight",
 		"Drake", "Mage", "Archer", "Rogue", "Titan", "Wraith", "Hunter", "Pilgrim",
+		"Bandit", "Monk", "Squire", "Corsair", "Ranger", "Smith", "Oracle", "Nomad",
+		"Lancer", "Fletcher", "Miner", "Angler", "Brewer", "Cutter", "Tanner", "Digger",
 	};
+
+	/** Fixed width, so a column of them does not hint at name lengths. */
+	private static final String ASTERISKS = "*****";
 
 	/** Assigned stand-ins, so two accounts are never shown as the same person. */
 	private static final Map<Long, String> ASSIGNED = new HashMap<>();
@@ -55,9 +62,14 @@ final class NameMasker
 		{
 			return "";
 		}
-		if (privacy == null || !privacy.isMasked())
+		// LOGIN_ONLY leaves the character name alone - it is public in game.
+		if (privacy == null || !privacy.masksDisplayName())
 		{
 			return record.label();
+		}
+		if (privacy == NamePrivacy.ASTERISKS)
+		{
+			return ASTERISKS;
 		}
 		if (privacy == NamePrivacy.HIDDEN)
 		{
@@ -78,6 +90,10 @@ final class NameMasker
 		if (value == null || value.isEmpty() || "-".equals(value))
 		{
 			return value == null ? "" : value;
+		}
+		if (privacy == NamePrivacy.ASTERISKS)
+		{
+			return ASTERISKS;
 		}
 		if (privacy == NamePrivacy.HIDDEN)
 		{

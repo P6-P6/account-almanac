@@ -214,11 +214,6 @@ class SettingsPanel extends JPanel
 		onlyOffers.addActionListener(e -> write("remindOnlyWithOffers", onlyOffers.isSelected()));
 		addRow(grid, row++, "", onlyOffers, "");
 
-		JCheckBox includeBanned = new JCheckBox("Include accounts marked banned",
-			config.remindIncludeBanned());
-		includeBanned.addActionListener(e -> write("remindIncludeBanned", includeBanned.isSelected()));
-		addRow(grid, row, "", includeBanned, "");
-
 		return section("Login reminders",
 			"Grand Exchange offers do not expire with age, but their prices go stale as the "
 				+ "market moves - 14 days is a reasonable point to revisit one.", grid);

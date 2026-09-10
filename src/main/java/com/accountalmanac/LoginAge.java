@@ -89,8 +89,31 @@ final class LoginAge
 		return Status.FRESH;
 	}
 
-	/** {@code "2026-09-03 18:49"}, or {@code "never"} when unset. */
+	/**
+	 * The user's chosen date style, or {@code "never"} when unset.
+	 *
+	 * <p>Set by {@link #applyConfig}. Held statically for the same reason the
+	 * number formats are - threading a formatter through every renderer and
+	 * table model is a wide change in service of one setting.
+	 */
+	private static volatile DateFormatMode mode = DateFormatMode.ISO;
+
+	static void applyConfig(AccountAlmanacConfig config)
+	{
+		if (config != null && config.dateFormat() != null)
+		{
+			mode = config.dateFormat();
+		}
+	}
+
+	/** A timestamp in the user's chosen style, or {@code "never"} when unset. */
 	static String exact(long epochMillis)
+	{
+		return mode.format(epochMillis);
+	}
+
+	/** Always {@code "2026-09-03 18:49"}, whatever the setting - for tooltips. */
+	static String iso(long epochMillis)
 	{
 		if (epochMillis <= 0L)
 		{

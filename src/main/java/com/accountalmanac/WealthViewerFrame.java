@@ -304,7 +304,7 @@ class WealthViewerFrame extends JFrame
 	private void refreshReminderLabel(List<AccountRecord> accounts, long now)
 	{
 		List<LoginReminders.Reminder> due = LoginReminders.overdue(accounts, now,
-			config.reminderAfterDays(), config.remindOnlyWithOffers(), config.remindIncludeBanned());
+			config.reminderAfterDays(), config.remindOnlyWithOffers());
 
 		if (due.isEmpty())
 		{
@@ -1624,11 +1624,25 @@ class WealthViewerFrame extends JFrame
 					// Row vanished between sort and paint.
 				}
 
+				// Two columns share this renderer and they hold different things:
+				// the date column holds a timestamp to format, the days column a
+				// plain count. Told apart by which column is being painted
+				// rather than by guessing from the value's magnitude.
+				boolean isDateColumn = t.convertColumnIndexToModel(column)
+					== AccountTableModel.COL_LAST_LOGIN;
 				if (value instanceof Number)
 				{
 					long shown = ((Number) value).longValue();
-					setText(shown < 0L ? "-" : Long.toString(shown));
-					setHorizontalAlignment(SwingConstants.RIGHT);
+					if (isDateColumn)
+					{
+						setText(LoginAge.exact(shown));
+						setHorizontalAlignment(SwingConstants.LEFT);
+					}
+					else
+					{
+						setText(shown < 0L ? "-" : Long.toString(shown));
+						setHorizontalAlignment(SwingConstants.RIGHT);
+					}
 				}
 				else
 				{
@@ -1643,7 +1657,7 @@ class WealthViewerFrame extends JFrame
 						setForeground(LoginAgeColours.forTimestamp(record.lastLoginAt, now, config));
 					}
 					setToolTipText(record.lastLoginAt > 0L
-						? LoginAge.friendly(record.lastLoginAt)
+						? LoginAge.iso(record.lastLoginAt)
 							+ "  (" + LoginAge.describeAge(record.lastLoginAt, now) + ")"
 						: "Never logged into since tracking began");
 				}
@@ -1715,6 +1729,11 @@ class WealthViewerFrame extends JFrame
 			{
 				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
 				setIcon(null);
+				// Centred so the helm sits under the column heading rather than
+				// hard against the left edge with the text trailing it.
+				setHorizontalAlignment(SwingConstants.CENTER);
+				setHorizontalTextPosition(SwingConstants.RIGHT);
+				setIconTextGap(4);
 
 				AccountRecord record = null;
 				try
@@ -1985,6 +2004,7 @@ class WealthViewerFrame extends JFrame
 				case 8:
 				case 9:
 				case 10:
+				case 11:
 					return Long.class;
 				default:
 					return String.class;
@@ -2040,10 +2060,13 @@ class WealthViewerFrame extends JFrame
 				case 10:
 					return includeGe ? record.totalWealth() : record.bankValue;
 				case 11:
-					// Sorts correctly as text: the format is yyyy-MM-dd HH:mm,
-					// so lexical and chronological order agree. "never" sorts
-					// after every real date, which is where it belongs.
-					return LoginAge.exact(record.lastLoginAt);
+					// The raw timestamp, not the formatted string. The column
+					// used to hold text and relied on yyyy-MM-dd sorting
+					// lexically, which silently stopped being true the moment
+					// the date format became configurable - SEP sorts before
+					// OCT alphabetically but after it in a year. The renderer
+					// formats it; the sorter sees a number and is always right.
+					return record.lastLoginAt;
 				case 12:
 				{
 					long days = LoginAge.daysSince(record.lastLoginAt, now);

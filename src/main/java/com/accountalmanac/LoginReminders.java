@@ -62,22 +62,25 @@ final class LoginReminders
 	}
 
 	/**
-	 * @param includeBanned  include accounts flagged banned, which normally have
-	 *                       nothing to log into
+	 * Accounts overdue for a login.
+	 *
+	 * <p>Banned accounts are never included. There is nothing to log into, so a
+	 * reminder about one is noise by definition - it was briefly an option and
+	 * there was no case where turning it on helped.
+	 *
 	 * @param onlyWithOffers restrict to accounts with outstanding offers
 	 */
 	static List<Reminder> overdue(
 		List<AccountRecord> accounts,
 		long now,
 		int afterDays,
-		boolean onlyWithOffers,
-		boolean includeBanned)
+		boolean onlyWithOffers)
 	{
 		List<Reminder> due = new ArrayList<>();
 
 		for (AccountRecord record : accounts)
 		{
-			if (record.banned && !includeBanned)
+			if (record.banned)
 			{
 				continue;
 			}

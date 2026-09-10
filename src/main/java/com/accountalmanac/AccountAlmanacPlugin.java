@@ -146,6 +146,7 @@ public class AccountAlmanacPlugin extends Plugin
 		repricedThisSession = false;
 
 		Format.applyConfig(config);
+		LoginAge.applyConfig(config);
 
 		panel = new AlmanacSidebarPanel(store, historyStore, geEventStore, config,
 			configManager, this, itemManager, skillIconManager);
@@ -284,6 +285,7 @@ public class AccountAlmanacPlugin extends Plugin
 		// Number formats and colours are read at render time, so adopting the
 		// new values and repainting is all that is needed - no restart.
 		Format.applyConfig(config);
+		LoginAge.applyConfig(config);
 		refreshPanel();
 	}
 

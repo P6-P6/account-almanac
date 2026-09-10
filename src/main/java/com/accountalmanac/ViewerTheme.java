@@ -69,8 +69,8 @@ public enum ViewerTheme
 	 * a third dark blue would be hard to tell from Midnight at a glance.
 	 */
 	SARADOMIN("Saradomin white",
-		new Color(240, 243, 248),
-		new Color(222, 229, 240),
+		new Color(214, 221, 233),
+		new Color(196, 205, 221),
 		new Color(26, 32, 44),
 		new Color(94, 106, 128),
 		new Color(176, 137, 26));

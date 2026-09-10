@@ -377,7 +377,7 @@ class AlmanacSidebarPanel extends PluginPanel
 	private void updateReminderLabel(List<AccountRecord> accounts, long now)
 	{
 		List<LoginReminders.Reminder> due = LoginReminders.overdue(accounts, now,
-			config.reminderAfterDays(), config.remindOnlyWithOffers(), config.remindIncludeBanned());
+			config.reminderAfterDays(), config.remindOnlyWithOffers());
 
 		if (due.isEmpty())
 		{
