@@ -322,6 +322,19 @@ class AccountStore
 		return dataFile;
 	}
 
+	/**
+	 * Overrides the display name captured on login.
+	 *
+	 * <p>An empty value clears the override, so the next login sets it from the
+	 * client again rather than leaving the account permanently blank.
+	 */
+	synchronized void updateDisplayName(long accountHash, String displayName)
+	{
+		AccountRecord record = findOrCreate(accountHash);
+		record.displayName = displayName == null ? "" : displayName;
+		saveAsync();
+	}
+
 	synchronized void updateLoginLabel(long accountHash, String loginLabel)
 	{
 		AccountRecord record = findOrCreate(accountHash);
@@ -443,6 +456,41 @@ class AccountStore
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Fills in high alchemy values on every stored item.
+	 *
+	 * <p>Separate from {@link #applyPrices} because these do not change: an
+	 * item's alch value is fixed, so this is a backfill rather than a refresh,
+	 * and an item that already has one is left alone.
+	 *
+	 * @return {@code true} if anything was filled in
+	 */
+	synchronized boolean applyAlchPrices(Map<Integer, Integer> alchById)
+	{
+		boolean changed = false;
+		for (AccountRecord record : data.accounts)
+		{
+			for (BankItem item : record.bankItems)
+			{
+				if (item.haPrice > 0)
+				{
+					continue;
+				}
+				Integer ha = alchById.get(item.id);
+				if (ha != null && ha > 0)
+				{
+					item.haPrice = ha;
+					changed = true;
+				}
+			}
+		}
+		if (changed)
+		{
+			markDirty();
+		}
+		return changed;
 	}
 
 	/** Item id to display name, across every tracked account. */

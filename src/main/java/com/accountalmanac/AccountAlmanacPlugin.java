@@ -625,8 +625,18 @@ public class AccountAlmanacPlugin extends Plugin
 		clientThread.invoke(() ->
 		{
 			Map<Integer, Integer> prices = new HashMap<>(ids.size());
+			// Alch values come from the item composition, which is available for
+			// any id on this thread - the bank does not need to have been
+			// opened. Collected here so every stored item gets one, rather than
+			// only the ones seen since alch values started being recorded.
+			Map<Integer, Integer> alchPrices = new HashMap<>(ids.size());
 			for (Integer id : ids)
 			{
+				int ha = itemManager.getItemComposition(id).getHaPrice();
+				if (ha > 0)
+				{
+					alchPrices.put(id, ha);
+				}
 				int price = itemManager.getItemPrice(id);
 				// A zero is never published. It means one of two things and
 				// they are indistinguishable here: an untradeable item, which
@@ -650,6 +660,8 @@ public class AccountAlmanacPlugin extends Plugin
 				{
 					historyStore.flushIfDirty();
 				}
+
+				store.applyAlchPrices(alchPrices);
 
 				if (store.applyPrices(prices))
 				{

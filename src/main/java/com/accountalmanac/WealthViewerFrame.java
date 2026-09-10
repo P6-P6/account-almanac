@@ -24,6 +24,9 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -63,6 +66,12 @@ class WealthViewerFrame extends JFrame
 
 	private final AccountStore store;
 	private final HistoryStore historyStore;
+
+	/**
+	 * Held so removing an account can clear its Grand Exchange log as well.
+	 * Everything else reads events through {@link GeLogPanel}.
+	 */
+	private final GeEventStore geEventStore;
 	private final AccountAlmanacConfig config;
 	private final AccountAlmanacPlugin plugin;
 	private final ItemManager itemManager;
@@ -125,6 +134,7 @@ class WealthViewerFrame extends JFrame
 	private final JLabel riserLabel = new JLabel();
 	private final JLabel dropperLabel = new JLabel();
 	private final JLabel highAlchLabel = new JLabel();
+	private final JLabel playtimeLabel = new JLabel();
 	private final SkillTotalsTableModel skillTotalsModel = new SkillTotalsTableModel();
 
 	private final ItemIconCache itemIcons;
@@ -136,6 +146,8 @@ class WealthViewerFrame extends JFrame
 	private final JComboBox<String> snapshotAccountBox = new JComboBox<>();
 	private final List<AccountRecord> snapshotAccounts = new ArrayList<>();
 	private boolean populatingSnapshotBox;
+	private final JCheckBox snapshotExcludeGe =
+		new JCheckBox("Bank only (exclude GE value)");
 
 	private List<ItemAggregator.ItemTotal> currentTotals = new ArrayList<>();
 
@@ -154,6 +166,7 @@ class WealthViewerFrame extends JFrame
 		super("Account Almanac");
 		this.store = store;
 		this.historyStore = historyStore;
+		this.geEventStore = geEventStore;
 		this.config = config;
 		this.plugin = plugin;
 		this.itemManager = itemManager;
@@ -194,6 +207,177 @@ class WealthViewerFrame extends JFrame
 	private String nameOf(AccountRecord record)
 	{
 		return NameMasker.display(record, config.namePrivacy());
+	}
+
+	/**
+	 * Right-click menu on an account row.
+	 *
+	 * <p>Selects the row under the cursor before showing the menu. Without
+	 * that, right-clicking a row that is not already selected acts on whatever
+	 * was selected before - which for a delete is the kind of mistake that is
+	 * only noticed afterwards.
+	 */
+	private void attachAccountContextMenu(JTable table)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem editDisplay = new JMenuItem("Edit display name...");
+		JMenuItem editLabel = new JMenuItem("Edit login label...");
+		JMenuItem editCategory = new JMenuItem("Set group...");
+		JMenuItem remove = new JMenuItem("Remove account...");
+
+		menu.add(editDisplay);
+		menu.add(editLabel);
+		menu.add(editCategory);
+		menu.addSeparator();
+		menu.add(remove);
+
+		editDisplay.addActionListener(e -> editSelectedName(table, true));
+		editLabel.addActionListener(e -> editSelectedName(table, false));
+		editCategory.addActionListener(e -> editSelectedCategory(table));
+		remove.addActionListener(e -> confirmRemoveSelected(table));
+
+		table.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				maybeShow(e);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				// Popup trigger fires on press on some platforms and release on
+				// others, so both are handled.
+				maybeShow(e);
+			}
+
+			private void maybeShow(MouseEvent e)
+			{
+				if (!e.isPopupTrigger())
+				{
+					return;
+				}
+				int viewRow = table.rowAtPoint(e.getPoint());
+				if (viewRow < 0)
+				{
+					return;
+				}
+				table.setRowSelectionInterval(viewRow, viewRow);
+				menu.show(table, e.getX(), e.getY());
+			}
+		});
+	}
+
+	/** The account under the current selection, or null. */
+	private AccountRecord selectedAccount(JTable table)
+	{
+		int viewRow = table.getSelectedRow();
+		if (viewRow < 0)
+		{
+			return null;
+		}
+		return accountModel.recordAt(table.convertRowIndexToModel(viewRow));
+	}
+
+	/**
+	 * @param displayName {@code true} to edit the shown name, {@code false}
+	 *                    for the login label
+	 */
+	private void editSelectedName(JTable table, boolean displayName)
+	{
+		AccountRecord record = selectedAccount(table);
+		if (record == null)
+		{
+			return;
+		}
+
+		String current = displayName ? record.displayName : record.loginLabel;
+		String prompt = displayName
+			? "Display name for this account." + "\n\n"
+				+ "Overrides what the client reported. Clearing it lets the next"
+				+ " login set it again."
+			: "Login label - a nickname for which login this account sits under."
+				+ "\n" + "Never a password.";
+
+		String updated = (String) JOptionPane.showInputDialog(this, prompt,
+			displayName ? "Edit display name" : "Edit login label",
+			JOptionPane.PLAIN_MESSAGE, null, null, current);
+
+		if (updated != null)
+		{
+			if (displayName)
+			{
+				store.updateDisplayName(record.accountHash, updated.trim());
+			}
+			else
+			{
+				store.updateLoginLabel(record.accountHash, updated.trim());
+			}
+			reload();
+		}
+	}
+
+	private void editSelectedCategory(JTable table)
+	{
+		AccountRecord record = selectedAccount(table);
+		if (record == null)
+		{
+			return;
+		}
+
+		JComboBox<String> input = new JComboBox<>(
+			AccountCategory.presetLabels().toArray(new String[0]));
+		input.setEditable(true);
+		input.setSelectedItem(record.category == null ? "" : record.category);
+
+		int result = JOptionPane.showConfirmDialog(this, input,
+			"Group for " + nameOf(record), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+		if (result == JOptionPane.OK_OPTION)
+		{
+			Object selected = input.getSelectedItem();
+			store.updateCategory(record.accountHash, selected == null ? "" : selected.toString());
+			reload();
+		}
+	}
+
+	/**
+	 * Two separate confirmations, not one strongly-worded dialog. A second
+	 * dialog is a second deliberate click, which one "are you sure" does not
+	 * force, and removal destroys every record of the account with no undo.
+	 */
+	private void confirmRemoveSelected(JTable table)
+	{
+		AccountRecord record = selectedAccount(table);
+		if (record == null)
+		{
+			return;
+		}
+
+		String name = nameOf(record);
+		int first = JOptionPane.showConfirmDialog(this,
+			"Stop tracking " + name + "?" + "\n\n"
+				+ "This deletes its bank snapshot, Grand Exchange offers and log,"
+				+ "\n" + "skill history and wealth snapshots. There is no undo.",
+			"Remove account", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+		if (first != JOptionPane.YES_OPTION)
+		{
+			return;
+		}
+
+		int second = JOptionPane.showConfirmDialog(this,
+			"Really remove " + name + "? This cannot be undone.",
+			"Confirm removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+		if (second == JOptionPane.YES_OPTION)
+		{
+			store.removeAccount(record.accountHash);
+			historyStore.removeAccount(record.accountHash);
+			geEventStore.removeAccount(record.accountHash);
+			reload();
+		}
 	}
 
 	/**
@@ -397,6 +581,8 @@ class WealthViewerFrame extends JFrame
 			AccountTableModel.COL_DAYS);
 		table.getColumnModel().getColumn(AccountTableModel.COL_LAST_LOGIN).setPreferredWidth(120);
 
+		attachAccountContextMenu(table);
+
 		table.addMouseListener(new MouseAdapter()
 		{
 			@Override
@@ -450,7 +636,8 @@ class WealthViewerFrame extends JFrame
 			}
 		});
 
-		searchField.setToolTipText("Filter items by name");
+		searchField.setToolTipText(
+			"Filter items by name, or type an item id to find one exactly");
 		searchField.addKeyListener(new KeyAdapter()
 		{
 			@Override
@@ -862,9 +1049,15 @@ class WealthViewerFrame extends JFrame
 			}
 		});
 
+		snapshotExcludeGe.setToolTipText(
+			"Show bank value alone, leaving out coins and stock committed to Grand Exchange "
+				+ "offers - useful when offers are moving and you want the underlying trend");
+		snapshotExcludeGe.addActionListener(e -> refreshSnapshots());
+
 		JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
 		controls.add(new JLabel("Account:"));
 		controls.add(snapshotAccountBox);
+		controls.add(snapshotExcludeGe);
 
 		JTable table = new JTable(snapshotModel);
 		table.setAutoCreateRowSorter(true);
@@ -906,12 +1099,13 @@ class WealthViewerFrame extends JFrame
 					histories.add(history);
 				}
 			}
-			snapshotModel.setCombined(histories);
+			snapshotModel.setCombined(histories, snapshotExcludeGe.isSelected());
 			return;
 		}
 
 		AccountRecord selected = snapshotAccounts.get(index - 1);
-		snapshotModel.setHistory(historyStore.historyFor(selected.accountHash));
+		snapshotModel.setHistory(historyStore.historyFor(selected.accountHash),
+			snapshotExcludeGe.isSelected());
 	}
 
 	/**
@@ -953,7 +1147,10 @@ class WealthViewerFrame extends JFrame
 		 * a given day, which would make the total collapse and rebound purely
 		 * from who logged in.
 		 */
-		void setCombined(List<AccountHistory> histories)
+		/**
+		 * @param bankOnly leave Grand Exchange value out of the totals
+		 */
+		void setCombined(List<AccountHistory> histories, boolean bankOnly)
 		{
 			java.util.TreeSet<Long> days = new java.util.TreeSet<>();
 			for (AccountHistory history : histories)
@@ -992,7 +1189,7 @@ class WealthViewerFrame extends JFrame
 					{
 						row.bank += latest.bankValue;
 						row.ge += latest.geValue;
-						row.total += latest.totalWealth();
+						row.total += bankOnly ? latest.bankValue : latest.totalWealth();
 						row.totalLevel += latest.totalLevel;
 						row.totalXp += latest.totalXp;
 					}
@@ -1018,7 +1215,7 @@ class WealthViewerFrame extends JFrame
 				.toInstant().toEpochMilli();
 		}
 
-		void setHistory(AccountHistory history)
+		void setHistory(AccountHistory history, boolean bankOnly)
 		{
 			List<Row> built = new ArrayList<>();
 			if (history != null)
@@ -1032,7 +1229,7 @@ class WealthViewerFrame extends JFrame
 					row.at = snapshot.at;
 					row.bank = snapshot.bankValue;
 					row.ge = snapshot.geValue;
-					row.total = snapshot.totalWealth();
+					row.total = bankOnly ? snapshot.bankValue : snapshot.totalWealth();
 					row.totalLevel = snapshot.totalLevel;
 					row.totalXp = snapshot.totalXp;
 					// The first snapshot has nothing before it, so it shows no
@@ -1131,7 +1328,8 @@ class WealthViewerFrame extends JFrame
 		stats.setOpaque(false);
 
 		for (JLabel label : new JLabel[] {
-			totalXpLabel, totalLevelSumLabel, bondsLabel, highAlchLabel, riserLabel, dropperLabel,
+			totalXpLabel, totalLevelSumLabel, bondsLabel, playtimeLabel, highAlchLabel,
+			riserLabel, dropperLabel,
 			topTotalLevelLabel, topCombatLabel,
 			ironmanBreakdownLabel, geActivityLabel, dataCompletenessLabel
 		})
@@ -1240,12 +1438,58 @@ class WealthViewerFrame extends JFrame
 		updateBondsLabel(accounts);
 		updateMoverLabels();
 		updateHighAlchLabel(accounts);
+		updatePlaytimeLabel(accounts);
 
 		dataCompletenessLabel.setText(neverOpened == 0
 			? "Every tracked account has had its bank opened at least once"
 			: neverOpened + " of " + accounts.size() + " tracked accounts have never had their bank opened");
 
 		skillTotalsModel.setAccounts(accounts, config.namePrivacy());
+	}
+
+	/**
+	 * Combined time played across the roster, in hours.
+	 *
+	 * <p>Read from the game's own Account Summary value, so it is the
+	 * account's real lifetime rather than time spent in this client. Only
+	 * accounts that have logged in since this started being captured
+	 * contribute, which is stated rather than quietly folded in.
+	 */
+	private void updatePlaytimeLabel(List<AccountRecord> accounts)
+	{
+		long minutes = 0L;
+		int known = 0;
+		AccountRecord most = null;
+
+		for (AccountRecord record : accounts)
+		{
+			if (record.playtimeMinutes <= 0)
+			{
+				continue;
+			}
+			minutes += record.playtimeMinutes;
+			known++;
+			if (most == null || record.playtimeMinutes > most.playtimeMinutes)
+			{
+				most = record;
+			}
+		}
+
+		if (known == 0)
+		{
+			playtimeLabel.setText("Time played: not captured yet - log into an account to record it");
+			playtimeLabel.setToolTipText(null);
+			return;
+		}
+
+		long hours = minutes / 60L;
+		playtimeLabel.setText(String.format(Locale.ROOT,
+			"Time played: %s hours across %d of %d accounts   (most: %s, %s hours)",
+			Format.exact(hours), known, accounts.size(),
+			nameOf(most), Format.exact(most.playtimeMinutes / 60L)));
+		playtimeLabel.setToolTipText(known < accounts.size()
+			? (accounts.size() - known) + " accounts have not logged in since this started being recorded"
+			: "Every account has reported its time played");
 	}
 
 	/**
@@ -1548,6 +1792,26 @@ class WealthViewerFrame extends JFrame
 		if (text == null || text.trim().isEmpty())
 		{
 			itemSorter.setRowFilter(null);
+			return;
+		}
+
+		// An all-digits search is treated as an item id. Names never consist
+		// only of digits, so this cannot shadow a real name search, and it is
+		// the only way to pin down one of several similarly-named variants.
+		String trimmed = text.trim();
+		if (trimmed.matches("\\d+"))
+		{
+			final int wantedId = Integer.parseInt(trimmed);
+			itemSorter.setRowFilter(new RowFilter<ItemTableModel, Integer>()
+			{
+				@Override
+				public boolean include(Entry<? extends ItemTableModel, ? extends Integer> entry)
+				{
+					int row = entry.getIdentifier();
+					return row >= 0 && row < currentTotals.size()
+						&& currentTotals.get(row).itemId == wantedId;
+				}
+			});
 			return;
 		}
 		// Quoted so a stray '(' or '*' in the search box is treated as text
