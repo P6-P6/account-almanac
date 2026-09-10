@@ -204,21 +204,37 @@ class HistoryStore
 	/**
 	 * @return {@code true} if there was unsaved history and it was written
 	 */
-	synchronized boolean flushIfDirty()
+	boolean flushIfDirty()
 	{
-		if (!dirty)
+		String json;
+		synchronized (this)
 		{
-			return false;
+			if (!dirty)
+			{
+				return false;
+			}
+			json = serialiseLocked();
 		}
-		// Cleared only on success, so a failed write is retried on the next
-		// flush rather than silently dropping everything since the last one.
-		if (JsonFile.write(dataFile, gson, data))
+
+		if (JsonFile.writeText(dataFile, json))
 		{
-			dirty = false;
 			return true;
+		}
+		synchronized (this)
+		{
+			// Put it back so the next flush retries rather than dropping data.
+			dirty = true;
 		}
 		return false;
 	}
+
+	/** Serialises the current state. Caller must hold the monitor. */
+	private String serialiseLocked()
+	{
+		dirty = false;
+		return gson.toJson(data);
+	}
+
 
 	private AccountHistory findOrCreate(long accountHash)
 	{

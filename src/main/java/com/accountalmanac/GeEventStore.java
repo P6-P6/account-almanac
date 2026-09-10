@@ -37,6 +37,17 @@ class GeEventStore
 	private GeEventData data = new GeEventData();
 	private volatile boolean dirty;
 
+	/**
+	 * Bumped on every change to the log.
+	 *
+	 * <p>Lets a reader tell "nothing has changed" apart from "I should re-read"
+	 * without copying and sorting the whole list to find out. The viewer
+	 * refreshes every five seconds while anything is dirty, and at a hundred
+	 * thousand events that copy-and-sort on the Swing thread is what made the
+	 * window stutter.
+	 */
+	private volatile long revision;
+
 	@Inject
 	GeEventStore(Gson gson, ScheduledExecutorService executor)
 	{
@@ -57,6 +68,7 @@ class GeEventStore
 			{
 				data = JsonFile.read(dataFile, gson, GeEventData.class, GeEventData::new);
 				data.normalise();
+				revision++;
 			}
 			if (onLoaded != null)
 			{
@@ -94,7 +106,14 @@ class GeEventStore
 		}
 
 		dirty = true;
+		revision++;
 		return true;
+	}
+
+	/** Current revision, for readers deciding whether to re-read. */
+	long revision()
+	{
+		return revision;
 	}
 
 	/** Every event, newest first. Defensive copy, safe for the Swing thread. */
@@ -129,6 +148,7 @@ class GeEventStore
 		if (data.events.removeIf(e -> e.accountHash == accountHash))
 		{
 			dirty = true;
+			revision++;
 			saveAsync();
 		}
 	}
@@ -139,6 +159,7 @@ class GeEventStore
 		{
 			data.events = new ArrayList<>();
 			dirty = true;
+			revision++;
 			saveAsync();
 		}
 	}
@@ -151,19 +172,35 @@ class GeEventStore
 	/**
 	 * @return {@code true} if there were unsaved events and they were written
 	 */
-	synchronized boolean flushIfDirty()
+	boolean flushIfDirty()
 	{
-		if (!dirty)
+		String json;
+		synchronized (this)
 		{
-			return false;
+			if (!dirty)
+			{
+				return false;
+			}
+			json = serialiseLocked();
 		}
-		// Cleared only on success, so a failed write is retried on the next
-		// flush rather than silently dropping everything since the last one.
-		if (JsonFile.write(dataFile, gson, data))
+
+		if (JsonFile.writeText(dataFile, json))
 		{
-			dirty = false;
 			return true;
+		}
+		synchronized (this)
+		{
+			// Put it back so the next flush retries rather than dropping data.
+			dirty = true;
 		}
 		return false;
 	}
+
+	/** Serialises the current state. Caller must hold the monitor. */
+	private String serialiseLocked()
+	{
+		dirty = false;
+		return gson.toJson(data);
+	}
+
 }

@@ -85,6 +85,9 @@ class GeLogPanel extends JPanel
 	private boolean populating;
 	private List<GeEvent> events = new ArrayList<>();
 
+	/** Revision the cached list was read at; -1 forces the first read. */
+	private long loadedRevision = -1L;
+
 	GeLogPanel(GeEventStore geEventStore, AccountAlmanacConfig config)
 	{
 		this.geEventStore = geEventStore;
@@ -181,11 +184,24 @@ class GeLogPanel extends JPanel
 		return resolved == null || resolved.isEmpty() ? "-" : resolved;
 	}
 
-	/** Reads the log and repopulates every view. */
+	/**
+	 * Repopulates every view, re-reading the log only when it has changed.
+	 *
+	 * <p>This is called on the Swing thread every five seconds while the viewer
+	 * is open. Re-reading means copying and sorting the entire event list -
+	 * fine at a few hundred events, not at a hundred thousand - so the store's
+	 * revision is checked first and the cached copy reused when nothing has
+	 * been logged since.
+	 */
 	void reload()
 	{
-		events = geEventStore.getEventsNewestFirst();
-		refreshAccountOptions();
+		long current = geEventStore.revision();
+		if (current != loadedRevision)
+		{
+			events = geEventStore.getEventsNewestFirst();
+			loadedRevision = current;
+			refreshAccountOptions();
+		}
 		applyFilters();
 	}
 

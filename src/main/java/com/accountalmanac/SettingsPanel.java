@@ -299,9 +299,30 @@ class SettingsPanel extends JPanel
 	// Refresh
 	// ------------------------------------------------------------------
 
-	/** Updates the read-only summaries. Called whenever the viewer reloads. */
+	/** How often the stored-data summary is actually recomputed. */
+	private static final long SUMMARY_INTERVAL_MILLIS = 30_000L;
+
+	private long summaryRefreshedAt;
+
+	/**
+	 * Updates the read-only summaries.
+	 *
+	 * <p>Called on the Swing thread whenever the viewer reloads, which is every
+	 * five seconds while anything is dirty. Recomputing it costs a full scan of
+	 * the event log holding the store's lock, plus a directory listing for the
+	 * backups - neither of which belongs on a five-second loop for a panel of
+	 * static text that is usually not even the visible tab. Throttled instead;
+	 * the numbers being half a minute stale costs nothing.
+	 */
 	void reload()
 	{
+		long now = System.currentTimeMillis();
+		if (summaryRefreshedAt != 0L && now - summaryRefreshedAt < SUMMARY_INTERVAL_MILLIS)
+		{
+			return;
+		}
+		summaryRefreshedAt = now;
+
 		StringBuilder sb = new StringBuilder();
 		sb.append("Folder: ").append(store.file().getParentFile().getAbsolutePath()).append('\n');
 		sb.append("Accounts file: ").append(describeFile(store.file())).append('\n');

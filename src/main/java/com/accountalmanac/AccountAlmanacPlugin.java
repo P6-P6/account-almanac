@@ -201,18 +201,31 @@ public class AccountAlmanacPlugin extends Plugin
 			maintenanceTask = null;
 		}
 
-		// Capture a final snapshot before the stores go quiet, so a session's
-		// progress is not lost because the client closed between intervals.
+		// A final snapshot so a session's progress is not lost because the
+		// client closed between intervals. Cheap - it touches memory only.
 		recordSnapshotForCurrentAccount();
-		store.flushIfDirty();
-		historyStore.flushIfDirty();
-		geEventStore.flushIfDirty();
+
+		// The writes are queued rather than performed here. shutDown() runs on
+		// the Swing thread when the plugin is toggled off in the config panel,
+		// and three synchronous JSON writes there froze the whole client for as
+		// long as the event log took to serialise. The guidelines are explicit
+		// that shutDown must not block.
+		//
+		// Nothing is lost by queueing: the periodic flush runs every five
+		// seconds, so at most that much is outstanding, and the executor is
+		// RuneLite's own shared one which outlives this plugin being disabled.
+		executor.execute(() ->
+		{
+			store.flushIfDirty();
+			historyStore.flushIfDirty();
+			geEventStore.flushIfDirty();
+		});
 
 		if (config.backupOnSession())
 		{
-			// Run inline here, unlike start-up: the executor is about to stop
-			// and a queued task would simply never run.
-			backupNow();
+			// Queued behind the flushes above so it copies the freshly written
+			// files rather than the previous ones.
+			executor.execute(this::backupNow);
 		}
 
 		if (panel != null)

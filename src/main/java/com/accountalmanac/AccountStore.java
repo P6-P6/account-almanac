@@ -98,9 +98,14 @@ class AccountStore
 		}
 	}
 
+	/**
+	 * Marks dirty and queues a flush. Callers are on the client thread, so the
+	 * write itself must not happen here.
+	 */
 	private void saveAsync()
 	{
-		executor.execute(this::writeToDisk);
+		dirty = true;
+		executor.execute(this::flushIfDirty);
 	}
 
 	/**
@@ -116,61 +121,39 @@ class AccountStore
 	/**
 	 * @return {@code true} if there was unsaved data and it was flushed.
 	 */
-	synchronized boolean flushIfDirty()
+	boolean flushIfDirty()
 	{
-		if (!dirty)
+		String json;
+		synchronized (this)
 		{
-			return false;
-		}
-		// Cleared only on success. Clearing first meant a failed write - a full
-		// disk, or the file briefly locked by a sync tool - silently discarded
-		// everything accumulated since the last flush, with one log line and no
-		// retry until something else marked the store dirty.
-		if (writeToDisk())
-		{
+			if (!dirty)
+			{
+				return false;
+			}
+			// Serialised while holding the monitor so the snapshot is
+			// consistent, but the disk write happens after releasing it: the
+			// client thread contends on this same lock through updateSkill,
+			// updateBank and updateGeOffer, and holding it across the write
+			// would block the game on IO.
+			json = gson.toJson(data);
 			dirty = false;
+		}
+
+		if (JsonFile.writeText(dataFile, json))
+		{
 			return true;
+		}
+
+		synchronized (this)
+		{
+			// Cleared only on success. Clearing permanently meant a failed
+			// write - a full disk, or the file briefly locked by a sync tool -
+			// silently discarded everything accumulated since the last flush.
+			dirty = true;
 		}
 		return false;
 	}
 
-	/**
-	 * @return {@code true} only if the file was fully written and swapped in
-	 */
-	private synchronized boolean writeToDisk()
-	{
-		File dir = dataFile.getParentFile();
-		if (!dir.exists() && !dir.mkdirs())
-		{
-			log.warn("Failed to create account tracker directory {}", dir);
-			return false;
-		}
-
-		File tmp = new File(dir, FILE_NAME + ".tmp");
-		try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8))
-		{
-			gson.toJson(data, writer);
-		}
-		catch (IOException e)
-		{
-			log.warn("Failed to write account tracker data", e);
-			return false;
-		}
-
-		try
-		{
-			// File.renameTo() silently refuses to overwrite an existing
-			// destination on Windows, unlike POSIX rename() - Files.move()
-			// with REPLACE_EXISTING handles that correctly everywhere.
-			Files.move(tmp.toPath(), dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-			return true;
-		}
-		catch (IOException e)
-		{
-			log.warn("Failed to replace account tracker data file", e);
-			return false;
-		}
-	}
 
 	synchronized List<AccountRecord> getAccounts()
 	{

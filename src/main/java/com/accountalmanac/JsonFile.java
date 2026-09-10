@@ -69,6 +69,46 @@ final class JsonFile
 	/**
 	 * @return {@code true} if the file was fully written and swapped in
 	 */
+	/**
+	 * Writes already-serialised JSON.
+	 *
+	 * <p>Split from serialisation on purpose. Callers hold a lock while turning
+	 * their data into text - it has to be consistent - but must not hold it
+	 * across the disk write, because the client thread contends on that same
+	 * lock and would then be blocked on IO.
+	 */
+	static boolean writeText(File file, String json)
+	{
+		File dir = file.getParentFile();
+		if (dir != null && !dir.exists() && !dir.mkdirs())
+		{
+			log.warn("Failed to create directory {}", dir);
+			return false;
+		}
+
+		File tmp = new File(dir, file.getName() + ".tmp");
+		try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8))
+		{
+			writer.write(json);
+		}
+		catch (IOException e)
+		{
+			log.warn("Failed to write {}", tmp.getName(), e);
+			return false;
+		}
+
+		try
+		{
+			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+			return true;
+		}
+		catch (IOException e)
+		{
+			log.warn("Failed to replace {}", file.getName(), e);
+			return false;
+		}
+	}
+
 	static boolean write(File file, Gson gson, Object data)
 	{
 		File dir = file.getParentFile();
