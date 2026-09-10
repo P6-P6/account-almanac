@@ -167,11 +167,6 @@ class SettingsPanel extends JPanel
 			formatBox("quantityFormat", config.quantityFormat()),
 			"Item counts.");
 
-		JCheckBox tooltips = new JCheckBox("Show the exact figure in tooltips", config.exactValueTooltips());
-		tooltips.addActionListener(e -> write("exactValueTooltips", tooltips.isSelected()));
-		addRow(grid, row, "Tooltips", tooltips,
-			"Useful when abbreviating, since 237.7K hides the last digits.");
-
 		return section("Numbers",
 			"237,700 or 237.7K, chosen separately per kind of value.", grid);
 	}
@@ -189,10 +184,8 @@ class SettingsPanel extends JPanel
 			"At or past the stale threshold.");
 		addRow(grid, row++, "Gain", colourButton("gainColour", config.gainColour()),
 			"Positive change over a timeframe.");
-		addRow(grid, row++, "Loss", colourButton("lossColour", config.lossColour()),
+		addRow(grid, row, "Loss", colourButton("lossColour", config.lossColour()),
 			"Negative change over a timeframe.");
-		addRow(grid, row, "High value", colourButton("highValueColour", config.highValueColour()),
-			"Totals and large amounts.");
 
 		return section("Colours", "Applied across the sidebar, tables and charts.", grid);
 	}

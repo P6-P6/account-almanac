@@ -153,17 +153,6 @@ class GeEventStore
 		}
 	}
 
-	synchronized void clear()
-	{
-		if (!data.events.isEmpty())
-		{
-			data.events = new ArrayList<>();
-			dirty = true;
-			revision++;
-			saveAsync();
-		}
-	}
-
 	private void saveAsync()
 	{
 		executor.execute(this::flushIfDirty);

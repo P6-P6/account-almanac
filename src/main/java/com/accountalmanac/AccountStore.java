@@ -4,15 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -503,23 +499,6 @@ class AccountStore
 			markDirty();
 		}
 		return changed;
-	}
-
-	/** Item id to display name, across every tracked account. */
-	synchronized Map<Integer, String> knownItemNames()
-	{
-		Map<Integer, String> names = new HashMap<>();
-		for (AccountRecord record : data.accounts)
-		{
-			for (BankItem item : record.bankItems)
-			{
-				if (item.name != null && !item.name.isEmpty())
-				{
-					names.putIfAbsent(item.id, item.name);
-				}
-			}
-		}
-		return names;
 	}
 
 	private AccountRecord findOrCreate(long accountHash)

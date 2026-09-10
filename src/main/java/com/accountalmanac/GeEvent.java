@@ -93,12 +93,6 @@ class GeEvent
 		return totalValue / quantity;
 	}
 
-	/** True when the fill came in cheaper (buy) or richer (sell) than listed. */
-	boolean beatListedPrice()
-	{
-		return quantity > 0 && pricePerItem > 0 && actualUnitPrice() != pricePerItem;
-	}
-
 	void normalise()
 	{
 		if (type == null)

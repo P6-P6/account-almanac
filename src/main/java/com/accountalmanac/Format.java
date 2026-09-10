@@ -76,12 +76,6 @@ final class Format
 		return (delta > 0L ? "+" : "-") + magnitude;
 	}
 
-	/** Experience or a stat gain, in the user's XP style. */
-	static String xp(long amount)
-	{
-		return xpMode.format(amount);
-	}
-
 	/** A signed experience change, e.g. {@code "+1,204,551"}. */
 	static String xpChange(long delta)
 	{
@@ -117,15 +111,6 @@ final class Format
 			return "0";
 		}
 		return (delta > 0L ? "+" : "-") + exact(Math.abs(delta));
-	}
-
-	/**
-	 * Whether a value is being shortened at the moment, i.e. whether a tooltip
-	 * showing the exact figure would actually tell the user anything new.
-	 */
-	static boolean wealthIsAbbreviated()
-	{
-		return wealthMode == NumberFormatMode.ABBREVIATED;
 	}
 
 	static String relativeTime(long epochMillis)

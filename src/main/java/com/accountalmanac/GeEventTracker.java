@@ -79,23 +79,43 @@ final class GeEventTracker
 
 		if (prevState.equals(nextState))
 		{
-			// Same state, different numbers: a partial fill. Deliberately silent.
+			// Same state but a different item means the slot turned over
+			// entirely while unobserved - the old offer finished, was collected,
+			// and a new one was placed, all between two sightings. Reporting
+			// nothing would drop a completed trade from purchase history, which
+			// cannot be reconstructed later.
+			if (prev.itemId != next.itemId && prev.itemId > 0 && next.itemId > 0)
+			{
+				events.addAll(collection(prev, accountHash, accountLabel, now, true));
+				events.add(start(
+					"SELLING".equals(nextState) ? GeEventType.SELL_STARTED : GeEventType.BUY_STARTED,
+					next, accountHash, accountLabel, now, approximate));
+				return events;
+			}
+
+			// Same state, same item, different numbers: a partial fill.
+			// Deliberately silent - see the class docs.
 			return Collections.emptyList();
 		}
 
 		switch (nextState)
 		{
 			case "BUYING":
-				if (isIdle(prevState))
-				{
-					events.add(start(GeEventType.BUY_STARTED, next, accountHash, accountLabel, now, approximate));
-				}
-				break;
-
 			case "SELLING":
 				if (isIdle(prevState))
 				{
-					events.add(start(GeEventType.SELL_STARTED, next, accountHash, accountLabel, now, approximate));
+					// A finished offer being replaced in one step means it was
+					// collected to free the slot, even though the slot never
+					// passed through EMPTY where that is normally detected. The
+					// two paths would otherwise disagree about the same real
+					// event, and the collection would be lost for good.
+					if (!"EMPTY".equals(prevState))
+					{
+						events.addAll(collection(prev, accountHash, accountLabel, now, true));
+					}
+					events.add(start(
+						"SELLING".equals(nextState) ? GeEventType.SELL_STARTED : GeEventType.BUY_STARTED,
+						next, accountHash, accountLabel, now, approximate));
 				}
 				break;
 
@@ -258,7 +278,11 @@ final class GeEventTracker
 			{
 				GeEvent items = base(GeEventType.COLLECTED_ITEMS, prev, accountHash, accountLabel, now, approximate);
 				items.quantity = unsold;
-				items.totalValue = (long) unsold * prev.pricePerItem;
+				// Market value, not the asking price. Stock coming back from a
+				// cancelled sell is worth what it is worth - valuing it at the
+				// listing is the same mistake that had an ornament kit listed at
+				// 999,000 claiming that much had been collected.
+				items.totalValue = prev.sellStockValue();
 				events.add(items);
 			}
 		}

@@ -56,12 +56,6 @@ enum GeEventType
 		return sellSide;
 	}
 
-	/** True for the two events that complete a trade, i.e. the history rows. */
-	boolean isCompletedTrade()
-	{
-		return this == BUY_COMPLETED || this == SELL_COMPLETED;
-	}
-
 	/**
 	 * True for anything that moved goods or coins, completed or cancelled.
 	 * A partially-filled offer that was then cancelled still bought or sold

@@ -45,11 +45,6 @@ public enum Timeframe
 		return label;
 	}
 
-	int days()
-	{
-		return days;
-	}
-
 	@Override
 	public String toString()
 	{

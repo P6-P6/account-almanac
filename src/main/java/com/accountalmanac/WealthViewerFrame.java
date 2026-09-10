@@ -140,6 +140,12 @@ class WealthViewerFrame extends JFrame
 	private final ItemIconCache itemIcons;
 	private final ItemIconCache offerIcons;
 
+	/**
+	 * Sprites for the Grand Exchange log's item column. Its own cache rather
+	 * than a shared one because each is bound to the table it repaints.
+	 */
+	private final ItemIconCache geLogIcons;
+
 	private final WealthChangeTableModel wealthChangeModel = new WealthChangeTableModel();
 	private final SnapshotTableModel snapshotModel = new SnapshotTableModel();
 	private static final String ALL_ACCOUNTS_OPTION = "All accounts (combined)";
@@ -175,6 +181,8 @@ class WealthViewerFrame extends JFrame
 		this.itemIcons = new ItemIconCache(itemManager, itemTable);
 		this.offerIcons = new ItemIconCache(itemManager, offerTable);
 		this.geLogPanel = new GeLogPanel(geEventStore, config);
+		// Repaints the log panel itself once a sprite arrives.
+		this.geLogIcons = new ItemIconCache(itemManager, geLogPanel);
 		this.settingsPanel = new SettingsPanel(config, configManager, plugin, store,
 			historyStore, geEventStore, this::reload);
 
@@ -1913,6 +1921,7 @@ class WealthViewerFrame extends JFrame
 		refreshSnapshotSelector(accounts);
 		geLogPanel.setLabelResolver(this::labelForEvent);
 		geLogPanel.setMarketPrices(currentMarketPrices());
+		geLogPanel.setItemIcons(geLogIcons);
 		geLogPanel.reload();
 		settingsPanel.reload();
 	}

@@ -239,18 +239,6 @@ public interface AccountAlmanacConfig extends Config
 		return NumberFormatMode.ABBREVIATED;
 	}
 
-	@ConfigItem(
-		keyName = "exactValueTooltips",
-		name = "Exact value in tooltips",
-		description = "Show the full, comma-separated figure in a tooltip when a cell is abbreviated.",
-		position = 15,
-		section = numbersSection
-	)
-	default boolean exactValueTooltips()
-	{
-		return true;
-	}
-
 	// ------------------------------------------------------------------
 	// Colours
 	// ------------------------------------------------------------------
@@ -318,19 +306,6 @@ public interface AccountAlmanacConfig extends Config
 	default Color lossColour()
 	{
 		return new Color(198, 91, 91);
-	}
-
-	@Alpha
-	@ConfigItem(
-		keyName = "highValueColour",
-		name = "High value",
-		description = "Colour for totals and large amounts.",
-		position = 26,
-		section = coloursSection
-	)
-	default Color highValueColour()
-	{
-		return new Color(106, 176, 106);
 	}
 
 	// ------------------------------------------------------------------

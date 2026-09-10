@@ -57,16 +57,6 @@ final class TimeframeStats
 			return currentWealth - baselineWealth;
 		}
 
-		long xpDelta()
-		{
-			return currentXp - baselineXp;
-		}
-
-		int levelDelta()
-		{
-			return currentTotalLevel - baselineTotalLevel;
-		}
-
 		/** Percentage wealth change, or 0 when there was nothing to grow from. */
 		double wealthPercent()
 		{
@@ -199,33 +189,6 @@ final class TimeframeStats
 			deltas.put(skill, Math.max(0L, delta));
 		}
 		return deltas;
-	}
-
-	/**
-	 * Experience gained per skill summed across a roster, for the cross-account
-	 * stats view.
-	 */
-	static Map<String, Long> rosterSkillXpDeltas(
-		List<AccountRecord> accounts,
-		Map<Long, AccountHistory> histories,
-		Timeframe timeframe,
-		long now)
-	{
-		Map<String, Long> totals = new HashMap<>();
-		for (String skill : SkillOrder.names())
-		{
-			totals.put(skill, 0L);
-		}
-
-		for (AccountRecord record : accounts)
-		{
-			Map<String, Long> one = skillXpDeltas(record, histories.get(record.accountHash), timeframe, now);
-			for (Map.Entry<String, Long> entry : one.entrySet())
-			{
-				totals.merge(entry.getKey(), entry.getValue(), Long::sum);
-			}
-		}
-		return totals;
 	}
 
 	private static HistorySnapshot firstAvailableBaseline(

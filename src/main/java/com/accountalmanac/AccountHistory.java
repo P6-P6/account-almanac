@@ -110,20 +110,6 @@ class AccountHistory
 		return atOrBefore(timeframe.cutoffFrom(now));
 	}
 
-	/** Every snapshot at or after {@code from}, for charting a window. */
-	List<HistorySnapshot> since(long from)
-	{
-		List<HistorySnapshot> window = new ArrayList<>();
-		for (HistorySnapshot snapshot : snapshots)
-		{
-			if (snapshot.at >= from)
-			{
-				window.add(snapshot);
-			}
-		}
-		return window;
-	}
-
 	/**
 	 * Appends a snapshot if enough time has passed since the last one.
 	 *

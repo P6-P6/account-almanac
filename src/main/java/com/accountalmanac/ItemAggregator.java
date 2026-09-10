@@ -40,20 +40,6 @@ final class ItemAggregator
 			this.name = name;
 		}
 
-		/**
-		 * Share of this item's total quantity held by one account, 0.0-1.0.
-		 * Returns 0 when the total is zero, rather than dividing by it.
-		 */
-		double shareOf(long accountHash)
-		{
-			if (totalQuantity <= 0L)
-			{
-				return 0.0;
-			}
-			Long held = byAccount.get(accountHash);
-			return held == null ? 0.0 : (double) held / (double) totalQuantity;
-		}
-
 		int accountCount()
 		{
 			return byAccount.size();
@@ -179,17 +165,6 @@ final class ItemAggregator
 		}
 		slices.sort(Comparator.comparingLong((Slice s) -> s.value).reversed());
 		return slices;
-	}
-
-	/** Grand total of every account's bank plus GE holdings. */
-	static long totalWealth(List<AccountRecord> accounts)
-	{
-		long total = 0L;
-		for (AccountRecord record : accounts)
-		{
-			total += record.totalWealth();
-		}
-		return total;
 	}
 
 	/**
