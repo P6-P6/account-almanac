@@ -122,6 +122,9 @@ class WealthViewerFrame extends JFrame
 	private final JLabel topCombatLabel = new JLabel();
 	private final JLabel topTotalLevelLabel = new JLabel();
 	private final JLabel bondsLabel = new JLabel();
+	private final JLabel riserLabel = new JLabel();
+	private final JLabel dropperLabel = new JLabel();
+	private final JLabel highAlchLabel = new JLabel();
 	private final SkillTotalsTableModel skillTotalsModel = new SkillTotalsTableModel();
 
 	private final ItemIconCache itemIcons;
@@ -191,6 +194,39 @@ class WealthViewerFrame extends JFrame
 	private String nameOf(AccountRecord record)
 	{
 		return NameMasker.display(record, config.namePrivacy());
+	}
+
+	/**
+	 * Item id to current market price, built from data already priced.
+	 *
+	 * <p>Deliberately not an ItemManager lookup: that needs the client thread
+	 * and this runs on the Swing thread. The aggregate totals were priced on
+	 * the client thread during the last refresh, so reading them back here is
+	 * both correct and free.
+	 */
+	private Map<Integer, Integer> currentMarketPrices()
+	{
+		Map<Integer, Integer> prices = new java.util.HashMap<>();
+		for (ItemAggregator.ItemTotal total : currentTotals)
+		{
+			if (total.unitPrice > 0)
+			{
+				prices.put(total.itemId, total.unitPrice);
+			}
+		}
+		// Offers carry their own captured market price, which covers items held
+		// only in a sell offer and never seen in a bank.
+		for (AccountRecord record : visibleAccounts)
+		{
+			for (GrandExchangeRecord offer : record.geOffers)
+			{
+				if (offer.itemId > 0 && offer.marketPrice > 0)
+				{
+					prices.putIfAbsent(offer.itemId, offer.marketPrice);
+				}
+			}
+		}
+		return prices;
 	}
 
 	/**
@@ -453,6 +489,7 @@ class WealthViewerFrame extends JFrame
 		offerTable.setFillsViewportHeight(true);
 
 		setRenderer(offerTable, gpRenderer(), 5, 6, 7);
+		setRenderer(offerTable, progressRenderer(), 4);
 		setRenderer(offerTable, new ItemCellRenderer(offerIcons,
 			row -> offerModel.itemIdAt(row)), 3);
 		offerTable.getColumnModel().getColumn(0).setPreferredWidth(130);
@@ -1094,7 +1131,8 @@ class WealthViewerFrame extends JFrame
 		stats.setOpaque(false);
 
 		for (JLabel label : new JLabel[] {
-			totalXpLabel, totalLevelSumLabel, bondsLabel, topTotalLevelLabel, topCombatLabel,
+			totalXpLabel, totalLevelSumLabel, bondsLabel, highAlchLabel, riserLabel, dropperLabel,
+			topTotalLevelLabel, topCombatLabel,
 			ironmanBreakdownLabel, geActivityLabel, dataCompletenessLabel
 		})
 		{
@@ -1200,12 +1238,140 @@ class WealthViewerFrame extends JFrame
 			activeOffers, activeOffers == 1 ? "" : "s", Format.gp(committed)));
 
 		updateBondsLabel(accounts);
+		updateMoverLabels();
+		updateHighAlchLabel(accounts);
 
 		dataCompletenessLabel.setText(neverOpened == 0
 			? "Every tracked account has had its bank opened at least once"
 			: neverOpened + " of " + accounts.size() + " tracked accounts have never had their bank opened");
 
 		skillTotalsModel.setAccounts(accounts, config.namePrivacy());
+	}
+
+	/**
+	 * Combined high alchemy value of everything held.
+	 *
+	 * <p>Reported next to the market value rather than instead of it, because
+	 * the interesting figure is the gap: when alch value exceeds market value
+	 * the item is worth alching rather than selling, and across a large bank
+	 * that is not obvious item by item.
+	 *
+	 * <p>Only bank contents count. Stock in a sell offer is already committed
+	 * to being sold, so its alch value is not a choice available to you.
+	 */
+	private void updateHighAlchLabel(List<AccountRecord> accounts)
+	{
+		if (!config.showHighAlch())
+		{
+			highAlchLabel.setText("");
+			highAlchLabel.setToolTipText(null);
+			return;
+		}
+
+		long alch = 0L;
+		long market = 0L;
+		int unpriced = 0;
+		for (AccountRecord record : accounts)
+		{
+			for (BankItem item : record.bankItems)
+			{
+				if (item.quantity <= 0)
+				{
+					continue;
+				}
+				if (item.haPrice <= 0)
+				{
+					// Captured before alch values were recorded, or genuinely
+					// unalchable. Counted so the figure can be qualified rather
+					// than quietly understating.
+					unpriced++;
+					continue;
+				}
+				alch += item.totalHaValue();
+				market += item.totalValue();
+			}
+		}
+
+		if (alch == 0L)
+		{
+			highAlchLabel.setText("High alch value: not captured yet - reopen a bank to record it");
+			highAlchLabel.setToolTipText(null);
+			return;
+		}
+
+		long difference = alch - market;
+		highAlchLabel.setText(String.format(Locale.ROOT,
+			"High alch value of banked items: %s   (market %s, %s %s by alching)",
+			Format.gp(alch), Format.gp(market),
+			difference >= 0 ? "+" + Format.gpBare(difference) : Format.gpBare(difference),
+			difference >= 0 ? "gained" : "lost"));
+		highAlchLabel.setToolTipText(unpriced > 0
+			? unpriced + " item stacks have no alch value recorded and are left out"
+			: "Every banked stack has an alch value recorded");
+	}
+
+	/**
+	 * The item whose price has moved most since its recorded baseline.
+	 *
+	 * <p>Restricted to stacks of more than one. A single unique piece of gear
+	 * swinging in price is not as meaningful as a stack you could actually
+	 * choose to sell into a moving market, and it is the stack's value that
+	 * moves your net worth.
+	 */
+	private void updateMoverLabels()
+	{
+		ItemAggregator.ItemTotal riser = null;
+		ItemAggregator.ItemTotal dropper = null;
+		double bestUp = 0.0;
+		double bestDown = 0.0;
+		long riserAt = 0L;
+		long dropperAt = 0L;
+
+		for (ItemAggregator.ItemTotal total : currentTotals)
+		{
+			if (total.totalQuantity <= 1L || total.unitPrice <= 0)
+			{
+				continue;
+			}
+			PricePoint baseline = historyStore.priceBaseline(total.itemId);
+			if (baseline == null || baseline.price <= 0 || baseline.price == total.unitPrice)
+			{
+				continue;
+			}
+
+			double pct = 100.0 * (total.unitPrice - baseline.price) / (double) baseline.price;
+			if (pct > bestUp)
+			{
+				bestUp = pct;
+				riser = total;
+				riserAt = baseline.at;
+			}
+			else if (pct < bestDown)
+			{
+				bestDown = pct;
+				dropper = total;
+				dropperAt = baseline.at;
+			}
+		}
+
+		riserLabel.setText(describeMover("Biggest riser", riser, bestUp, riserAt));
+		riserLabel.setForeground(riser == null ? ColorScheme.LIGHT_GRAY_COLOR : config.gainColour());
+		dropperLabel.setText(describeMover("Biggest dropper", dropper, bestDown, dropperAt));
+		dropperLabel.setForeground(dropper == null ? ColorScheme.LIGHT_GRAY_COLOR : config.lossColour());
+	}
+
+	private String describeMover(String prefix, ItemAggregator.ItemTotal total, double pct, long since)
+	{
+		if (total == null)
+		{
+			return prefix + ": nothing has moved yet - prices are compared against a baseline "
+				+ "the plugin records itself, which fills in as prices refresh";
+		}
+		return String.format(Locale.ROOT,
+			"%s: %s %s%.1f%% since %s  -  your %s stack is worth %s",
+			prefix, total.name, pct >= 0 ? "+" : "", pct,
+			LoginAge.exact(since), Format.quantity(total.totalQuantity),
+			Format.gp(total.totalValue));
 	}
 
 	/**
@@ -1481,6 +1647,7 @@ class WealthViewerFrame extends JFrame
 		refreshWealthChanges();
 		refreshSnapshotSelector(accounts);
 		geLogPanel.setLabelResolver(this::labelForEvent);
+		geLogPanel.setMarketPrices(currentMarketPrices());
 		geLogPanel.reload();
 		settingsPanel.reload();
 	}
@@ -1523,6 +1690,97 @@ class WealthViewerFrame extends JFrame
 				table.getColumnModel().getColumn(column).setCellRenderer(renderer);
 			}
 		}
+	}
+
+	/**
+	 * Offer progress, as a filled bar or as a fraction.
+	 *
+	 * <p>The bar is painted rather than using a JProgressBar, because a
+	 * progress bar component inside a table cell brings its own look-and-feel
+	 * borders and does not follow the plugin's theme. A filled rectangle is
+	 * two calls and always matches.
+	 */
+	private DefaultTableCellRenderer progressRenderer()
+	{
+		return new DefaultTableCellRenderer()
+		{
+			private double fraction = -1.0;
+			private String text = "-";
+
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+				boolean selected, boolean focused, int row, int column)
+			{
+				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
+				fraction = value instanceof Number ? ((Number) value).doubleValue() : -1.0;
+
+				GrandExchangeRecord offer = null;
+				try
+				{
+					offer = offerModel.offerAt(t.convertRowIndexToModel(row));
+				}
+				catch (IndexOutOfBoundsException e)
+				{
+					// Row vanished between sort and paint.
+				}
+
+				if (fraction < 0.0 || offer == null)
+				{
+					text = "-";
+					setToolTipText(null);
+				}
+				else
+				{
+					text = Format.exact(offer.quantitySold) + " / " + Format.exact(offer.totalQuantity)
+						+ "  (" + Math.round(fraction * 100) + "%)";
+					setToolTipText(text);
+				}
+
+				setText(config.geProgressBar() ? "" : text);
+				setHorizontalAlignment(SwingConstants.CENTER);
+				return this;
+			}
+
+			@Override
+			protected void paintComponent(java.awt.Graphics g)
+			{
+				super.paintComponent(g);
+				if (!config.geProgressBar() || fraction < 0.0)
+				{
+					return;
+				}
+
+				int pad = 3;
+				int w = getWidth() - pad * 2;
+				int h = getHeight() - pad * 2;
+				if (w <= 0 || h <= 0)
+				{
+					return;
+				}
+
+				java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+				try
+				{
+					g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+					g2.fillRect(pad, pad, w, h);
+					// Green only when actually complete, so a nearly-full bar is
+					// still visibly not finished.
+					g2.setColor(fraction >= 1.0 ? config.gainColour() : ColorScheme.BRAND_ORANGE);
+					g2.fillRect(pad, pad, (int) Math.round(w * Math.min(1.0, fraction)), h);
+
+					g2.setColor(getForeground());
+					java.awt.FontMetrics fm = g2.getFontMetrics();
+					String label = Math.round(fraction * 100) + "%";
+					g2.drawString(label,
+						pad + (w - fm.stringWidth(label)) / 2,
+						pad + (h + fm.getAscent()) / 2 - 2);
+				}
+				finally
+				{
+					g2.dispose();
+				}
+			}
+		};
 	}
 
 	/**
@@ -1858,6 +2116,11 @@ class WealthViewerFrame extends JFrame
 			fireTableDataChanged();
 		}
 
+		GrandExchangeRecord offerAt(int modelRow)
+		{
+			return modelRow < 0 || modelRow >= rows.size() ? null : rows.get(modelRow).offer;
+		}
+
 		Integer itemIdAt(int modelRow)
 		{
 			if (modelRow < 0 || modelRow >= rows.size())
@@ -1893,6 +2156,8 @@ class WealthViewerFrame extends JFrame
 			{
 				case 1:
 					return Integer.class;
+				case 4:
+					return Double.class;
 				case 5:
 				case 6:
 				case 7:
@@ -1918,10 +2183,10 @@ class WealthViewerFrame extends JFrame
 				case 3:
 					return offer.isActive() ? offer.itemName : "-";
 				case 4:
-					return offer.isActive()
-						? Format.exact(offer.quantitySold) + " / " + Format.exact(offer.totalQuantity)
-						+ "  (" + Math.round(offer.progress() * 100) + "%)"
-						: "-";
+					// The raw fraction, so the renderer can draw either a bar or
+					// the text form from the same value, and so the column sorts
+					// by how full an offer is rather than alphabetically.
+					return offer.isActive() ? offer.progress() : -1.0;
 				case 5:
 					return (long) offer.pricePerItem;
 				case 6:

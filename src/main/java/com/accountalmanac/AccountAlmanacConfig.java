@@ -142,6 +142,19 @@ public interface AccountAlmanacConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "priceMovementHours",
+		name = "Price movement over",
+		description = "How far back the Interesting tab's biggest riser and dropper compare against. The plugin makes no network requests, so it remembers prices itself rather than asking for history - the comparison starts once a baseline that old exists.",
+		position = 8
+	)
+	@Units(" hours")
+	@Range(min = 1, max = 168)
+	default int priceMovementHours()
+	{
+		return 24;
+	}
+
+	@ConfigItem(
 		keyName = "dateFormat",
 		name = "Date format",
 		description = "How dates and times are written. Always your PC's local clock.",
@@ -409,6 +422,18 @@ public interface AccountAlmanacConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "backupOnSession",
+		name = "Back up on start and exit",
+		description = "Also write a backup when the client starts and when it closes, on top of the interval below. Backups are cheap - a copy of three files - and this covers the case where the interval has not come round before something goes wrong.",
+		position = 42,
+		section = historySection
+	)
+	default boolean backupOnSession()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "backupIntervalDays",
 		name = "Backup every",
 		description = "Days between automatic backups.",
@@ -438,6 +463,30 @@ public interface AccountAlmanacConfig extends Config
 	// ------------------------------------------------------------------
 	// Grand Exchange log
 	// ------------------------------------------------------------------
+
+	@ConfigItem(
+		keyName = "geProgressBar",
+		name = "Progress as a bar",
+		description = "Draw Grand Exchange offer progress as a filled bar instead of a fraction. The bar turns green when the offer is complete.",
+		position = 53,
+		section = geSection
+	)
+	default boolean geProgressBar()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showHighAlch",
+		name = "Show high alch totals",
+		description = "Add the combined high alchemy value of everything held to the Interesting tab. Useful when deciding whether a pile of low-value stock is worth alching rather than selling.",
+		position = 16,
+		section = numbersSection
+	)
+	default boolean showHighAlch()
+	{
+		return true;
+	}
 
 	@ConfigItem(
 		keyName = "logGeEvents",

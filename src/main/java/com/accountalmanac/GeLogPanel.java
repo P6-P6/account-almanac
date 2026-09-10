@@ -1,6 +1,7 @@
 package com.accountalmanac;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.util.ArrayList;
@@ -52,6 +53,16 @@ class GeLogPanel extends JPanel
 	 * standalone.
 	 */
 	private java.util.function.Function<GeEvent, String> labelResolver = e -> e.accountLabel;
+
+	/**
+	 * Item id to current market price.
+	 *
+	 * <p>Supplied as a finished map rather than looked up on demand. A price
+	 * lookup needs the client thread, and this renders on the Swing thread -
+	 * so the caller resolves them once, from data already priced, and hands
+	 * the result over. An item missing from the map simply shows no comparison.
+	 */
+	private Map<Integer, Integer> marketPrices = java.util.Collections.emptyMap();
 
 	private final EventTableModel allModel = new EventTableModel();
 	private final TradeTableModel purchaseModel = new TradeTableModel(false);
@@ -122,13 +133,24 @@ class GeLogPanel extends JPanel
 
 		for (int column = 0; column < model.getColumnCount(); column++)
 		{
-			if (model.getColumnClass(column) == Long.class)
+			Class<?> type = model.getColumnClass(column);
+			if (type == Long.class)
 			{
 				table.getColumnModel().getColumn(column).setCellRenderer(gpRenderer());
+			}
+			else if (type == Double.class)
+			{
+				table.getColumnModel().getColumn(column).setCellRenderer(percentRenderer());
 			}
 		}
 		table.getColumnModel().getColumn(0).setPreferredWidth(130);
 		return table;
+	}
+
+	/** Supplies current market prices, for the gain-potential column. */
+	void setMarketPrices(Map<Integer, Integer> prices)
+	{
+		this.marketPrices = prices == null ? java.util.Collections.emptyMap() : prices;
 	}
 
 	/** Points the panel at a name resolver, for the privacy setting. */
@@ -224,7 +246,9 @@ class GeLogPanel extends JPanel
 
 		allModel.setEvents(all, this::labelFor);
 		purchaseModel.setEvents(purchases, this::labelFor);
+		purchaseModel.setMarketPrices(marketPrices);
 		saleModel.setEvents(sales, this::labelFor);
+		saleModel.setMarketPrices(marketPrices);
 		costBasisModel.setTrades(purchases, sales);
 
 		long spent = 0L;
@@ -241,6 +265,46 @@ class GeLogPanel extends JPanel
 		summaryLabel.setText(String.format(Locale.ROOT,
 			"   %d events  -  %d purchases (%s spent)  -  %d sales (%s received)",
 			all.size(), purchases.size(), Format.gp(spent), sales.size(), Format.gp(earned)));
+	}
+
+	/**
+	 * A signed percentage, or a dash when there is nothing to compare against.
+	 *
+	 * <p>Green and red here mean "the market moved in your favour" and "against
+	 * it", which is why they are not the game's stack colours - this is a
+	 * judgement about a trade, not a magnitude.
+	 */
+	private static DefaultTableCellRenderer percentRenderer()
+	{
+		return new DefaultTableCellRenderer()
+		{
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+				boolean selected, boolean focused, int row, int column)
+			{
+				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
+				double pct = value instanceof Number ? ((Number) value).doubleValue() : Double.NaN;
+
+				if (Double.isNaN(pct))
+				{
+					setText("-");
+					setToolTipText("No current price known for this item");
+				}
+				else
+				{
+					setText(String.format(Locale.ROOT, "%+.0f%%", pct));
+					setToolTipText(pct >= 0
+						? "Worth more now than it was traded at"
+						: "Worth less now than it was traded at");
+					if (!selected)
+					{
+						setForeground(pct >= 0 ? new Color(106, 176, 106) : new Color(198, 91, 91));
+					}
+				}
+				setHorizontalAlignment(SwingConstants.RIGHT);
+				return this;
+			}
+		};
 	}
 
 	private static DefaultTableCellRenderer gpRenderer()
@@ -497,14 +561,22 @@ class GeLogPanel extends JPanel
 	{
 		private final String[] columns;
 
+		private Map<Integer, Integer> marketPrices = java.util.Collections.emptyMap();
+
 		TradeTableModel(boolean sellSide)
 		{
 			this.columns = new String[]{
 				"When", "Account", "Item", "Quantity",
 				"Listed price", sellSide ? "Received per item" : "Paid per item",
 				sellSide ? "Total received" : "Total paid",
-				"Outcome"
+				"Market now", "vs market", "Outcome"
 			};
+		}
+
+		void setMarketPrices(Map<Integer, Integer> prices)
+		{
+			this.marketPrices = prices == null ? java.util.Collections.emptyMap() : prices;
+			fireTableDataChanged();
 		}
 
 		@Override
@@ -529,10 +601,32 @@ class GeLogPanel extends JPanel
 				case 4:
 				case 5:
 				case 6:
+				case 7:
 					return Long.class;
+				case 8:
+					return Double.class;
 				default:
 					return String.class;
 			}
+		}
+
+		/**
+		 * How far the price transacted sits from what the item is worth now.
+		 *
+		 * <p>On a purchase this is the gain still on the table: buying at 1 gp
+		 * something now worth 9,000 is not visible from the paid price alone.
+		 * On a sale it reads the other way - positive means the market has
+		 * risen since, so it went too cheap.
+		 */
+		private double versusMarket(GeEvent event)
+		{
+			Integer market = marketPrices.get(event.itemId);
+			long paid = event.actualUnitPrice();
+			if (market == null || market <= 0 || paid <= 0)
+			{
+				return Double.NaN;
+			}
+			return 100.0 * (market - paid) / (double) paid;
 		}
 
 		@Override
@@ -556,6 +650,13 @@ class GeLogPanel extends JPanel
 				case 6:
 					return event.totalValue;
 				case 7:
+				{
+					Integer market = marketPrices.get(event.itemId);
+					return market == null ? 0L : (long) market;
+				}
+				case 8:
+					return versusMarket(event);
+				case 9:
 				{
 					GeEventType type = event.typeOrNull();
 					if (type == GeEventType.BUY_CANCELLED || type == GeEventType.SELL_CANCELLED)

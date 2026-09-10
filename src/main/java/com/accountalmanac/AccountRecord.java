@@ -80,6 +80,21 @@ class AccountRecord
 	/** When {@link #banned} was set, for the "recheck this" prompt. */
 	long bannedAt;
 
+	/**
+	 * Time played, as reported by the game's own account summary.
+	 *
+	 * <p>Read from {@code VarbitID.ACCOUNT_SUMMARY_DISPLAY_PLAYTIME}, which
+	 * is what the in-game Account Summary screen displays. The game does not
+	 * document its unit; it is treated as minutes, which is what the displayed
+	 * figure is consistent with. 0 means never captured - the varp is only
+	 * populated once the account has loaded.
+	 *
+	 * <p>Not derived from session timing on purpose. Counting ticks would only
+	 * ever measure time spent in this client, which is a different and much
+	 * less interesting number than the account's actual lifetime.
+	 */
+	int playtimeMinutes;
+
 	/** Total value of {@link #bankItems} as of {@link #lastUpdated}. */
 	long bankValue;
 	long lastUpdated;

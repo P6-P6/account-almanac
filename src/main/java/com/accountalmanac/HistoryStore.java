@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
@@ -143,6 +144,47 @@ class HistoryStore
 			}
 		}
 		return earliest;
+	}
+
+	/**
+	 * Updates the price baselines from a fresh set of prices.
+	 *
+	 * <p>An item with no baseline yet records one and reports no movement -
+	 * "up 100%" on the first sighting would be nonsense. An existing baseline
+	 * older than {@code windowMillis} rolls forward to the current price, so
+	 * the comparison stays roughly one window wide instead of drifting back to
+	 * whenever the plugin first ran.
+	 *
+	 * @return {@code true} if anything changed and a flush is warranted
+	 */
+	synchronized boolean updatePriceBaselines(Map<Integer, Integer> current, long now, long windowMillis)
+	{
+		boolean changed = false;
+		for (Map.Entry<Integer, Integer> entry : current.entrySet())
+		{
+			if (entry.getValue() == null || entry.getValue() <= 0)
+			{
+				continue;
+			}
+			String key = Integer.toString(entry.getKey());
+			PricePoint existing = data.priceBaselines.get(key);
+			if (existing == null || now - existing.at >= windowMillis)
+			{
+				data.priceBaselines.put(key, new PricePoint(entry.getValue(), now));
+				changed = true;
+			}
+		}
+		if (changed)
+		{
+			dirty = true;
+		}
+		return changed;
+	}
+
+	/** The baseline for an item, or {@code null} if it has never been priced. */
+	synchronized PricePoint priceBaseline(int itemId)
+	{
+		return data.priceBaselines.get(Integer.toString(itemId));
 	}
 
 	synchronized void removeAccount(long accountHash)

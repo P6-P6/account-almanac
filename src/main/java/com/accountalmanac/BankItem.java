@@ -22,16 +22,32 @@ class BankItem
 	/** GE price per item at the time this snapshot was taken. */
 	int unitPrice;
 
+	/**
+	 * High alchemy value per item, captured alongside the price.
+	 *
+	 * <p>Stored rather than looked up on demand because the lookup needs the
+	 * client thread and an item composition, neither of which the viewer has
+	 * when it is rendering a bank for an account that is not logged in.
+	 */
+	int haPrice;
+
 	BankItem()
 	{
 	}
 
-	BankItem(int id, int quantity, String name, int unitPrice)
+	BankItem(int id, int quantity, String name, int unitPrice, int haPrice)
 	{
 		this.id = id;
 		this.quantity = quantity;
 		this.name = name;
 		this.unitPrice = unitPrice;
+			this.haPrice = haPrice;
+	}
+
+	/** Combined high alchemy value of this stack. */
+	long totalHaValue()
+	{
+		return (long) haPrice * quantity;
 	}
 
 	long totalValue()

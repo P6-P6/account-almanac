@@ -251,6 +251,25 @@ class AccountStore
 		return previous;
 	}
 
+	/**
+	 * Records the account's reported playtime. Zero is ignored rather than
+	 * written: the varp reads 0 before the account finishes loading, and
+	 * storing that would wipe a good value captured earlier.
+	 */
+	synchronized void updatePlaytime(long accountHash, int minutes)
+	{
+		if (minutes <= 0)
+		{
+			return;
+		}
+		AccountRecord record = findOrCreate(accountHash);
+		if (record.playtimeMinutes != minutes)
+		{
+			record.playtimeMinutes = minutes;
+			markDirty();
+		}
+	}
+
 	synchronized void updateCategory(long accountHash, String category)
 	{
 		AccountRecord record = findOrCreate(accountHash);
@@ -374,7 +393,9 @@ class AccountStore
 				{
 					recordChanged = true;
 				}
-				repriced.add(new BankItem(item.id, item.quantity, item.name, price));
+				// haPrice carried through: alch value is fixed per item and is not
+				// part of what a reprice refreshes.
+				repriced.add(new BankItem(item.id, item.quantity, item.name, price, item.haPrice));
 				total += (long) price * item.quantity;
 			}
 

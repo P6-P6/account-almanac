@@ -27,6 +27,7 @@ import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.vars.AccountType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -177,6 +178,12 @@ public class AccountAlmanacPlugin extends Plugin
 
 		maintenanceTask = executor.scheduleWithFixedDelay(this::runMaintenance,
 			1, MAINTENANCE_INTERVAL_MINUTES, TimeUnit.MINUTES);
+
+		if (config.backupOnSession())
+		{
+			// Queued rather than run inline: startUp must not touch disk.
+			executor.execute(() -> backupNow());
+		}
 	}
 
 	@Override
@@ -200,6 +207,13 @@ public class AccountAlmanacPlugin extends Plugin
 		store.flushIfDirty();
 		historyStore.flushIfDirty();
 		geEventStore.flushIfDirty();
+
+		if (config.backupOnSession())
+		{
+			// Run inline here, unlike start-up: the executor is about to stop
+			// and a queued task would simply never run.
+			backupNow();
+		}
 
 		if (panel != null)
 		{
@@ -339,6 +353,7 @@ public class AccountAlmanacPlugin extends Plugin
 		if (needsNameUpdate)
 		{
 			tryUpdateDisplayName();
+			tryUpdatePlaytime();
 		}
 	}
 
@@ -446,8 +461,9 @@ public class AccountAlmanacPlugin extends Plugin
 			}
 			else
 			{
-				String name = itemManager.getItemComposition(canonicalId).getName();
-				merged.put(canonicalId, new BankItem(canonicalId, item.getQuantity(), name, unitPrice));
+				net.runelite.api.ItemComposition composition = itemManager.getItemComposition(canonicalId);
+				merged.put(canonicalId, new BankItem(canonicalId, item.getQuantity(),
+					composition.getName(), unitPrice, composition.getHaPrice()));
 			}
 		}
 
@@ -556,6 +572,23 @@ public class AccountAlmanacPlugin extends Plugin
 		return false;
 	}
 
+	/**
+	 * Captures the account's reported playtime.
+	 *
+	 * <p>Read on a tick rather than once at login because the varp is not
+	 * populated the instant the game state flips - the same race the display
+	 * name has. The store ignores zero, so an early read costs nothing.
+	 */
+	private void tryUpdatePlaytime()
+	{
+		if (currentAccountHash == null)
+		{
+			return;
+		}
+		store.updatePlaytime(currentAccountHash,
+			client.getVarbitValue(VarbitID.ACCOUNT_SUMMARY_DISPLAY_PLAYTIME));
+	}
+
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
@@ -610,6 +643,14 @@ public class AccountAlmanacPlugin extends Plugin
 
 			executor.execute(() ->
 			{
+				// Baselines are updated before the new prices land, so the
+				// comparison is against what was there previously.
+				if (historyStore.updatePriceBaselines(prices, System.currentTimeMillis(),
+					TimeUnit.HOURS.toMillis(config.priceMovementHours())))
+				{
+					historyStore.flushIfDirty();
+				}
+
 				if (store.applyPrices(prices))
 				{
 					store.flushIfDirty();
