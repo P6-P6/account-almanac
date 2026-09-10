@@ -230,6 +230,23 @@ public class AccountAlmanacPlugin extends Plugin
 	/** Flushes all three stores and refreshes the panel if anything changed. */
 	private void periodicFlush()
 	{
+		// Wrapped because scheduleWithFixedDelay treats an escaping exception as
+		// fatal to the task - RuneLite's handler rethrows, so one bad tick would
+		// silently stop all flushing and UI refresh for the rest of the session.
+		// The underlying race is fixed, but nothing here is worth that failure
+		// mode.
+		try
+		{
+			flushOnce();
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("Periodic flush failed; continuing", e);
+		}
+	}
+
+	private void flushOnce()
+	{
 		boolean changed = recordSnapshotForCurrentAccount();
 		changed |= store.flushIfDirty();
 		changed |= historyStore.flushIfDirty();

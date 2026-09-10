@@ -363,7 +363,7 @@ class AccountRowPanel extends JPanel
 	private void editNote()
 	{
 		String updated = (String) JOptionPane.showInputDialog(this,
-			"Note for " + record.label(),
+			"Note for " + NameMasker.display(record, config.namePrivacy()),
 			"Account note",
 			JOptionPane.PLAIN_MESSAGE, null, null, record.note);
 
@@ -386,7 +386,7 @@ class AccountRowPanel extends JPanel
 		input.setSelectedItem(record.category == null ? "" : record.category);
 
 		int result = JOptionPane.showConfirmDialog(this, input,
-			"Group for " + record.label(),
+			"Group for " + NameMasker.display(record, config.namePrivacy()),
 			JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
 		if (result == JOptionPane.OK_OPTION)
@@ -423,7 +423,7 @@ class AccountRowPanel extends JPanel
 	private void confirmRemove()
 	{
 		int first = JOptionPane.showConfirmDialog(this,
-			"Stop tracking " + record.label() + "?\n\n"
+			"Stop tracking " + NameMasker.display(record, config.namePrivacy()) + "?\n\n"
 				+ "This deletes its stored bank snapshot, GE offers, skill history, "
 				+ "wealth snapshots and Grand Exchange event log. There is no undo.",
 			"Remove account",
@@ -435,7 +435,8 @@ class AccountRowPanel extends JPanel
 		}
 
 		int second = JOptionPane.showConfirmDialog(this,
-			"Really remove " + record.label() + "? This cannot be undone.",
+			"Really remove " + NameMasker.display(record, config.namePrivacy())
+				+ "? This cannot be undone.",
 			"Confirm removal",
 			JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 

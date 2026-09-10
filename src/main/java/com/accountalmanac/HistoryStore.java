@@ -210,8 +210,14 @@ class HistoryStore
 		{
 			return false;
 		}
-		dirty = false;
-		return JsonFile.write(dataFile, gson, data);
+		// Cleared only on success, so a failed write is retried on the next
+		// flush rather than silently dropping everything since the last one.
+		if (JsonFile.write(dataFile, gson, data))
+		{
+			dirty = false;
+			return true;
+		}
+		return false;
 	}
 
 	private AccountHistory findOrCreate(long accountHash)

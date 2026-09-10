@@ -267,7 +267,7 @@ class SettingsPanel extends JPanel
 			"Offers started, finished and cancelled, plus items and coins collected.");
 
 		addRow(grid, row, "Events to keep",
-			spinner("maxGeEvents", config.maxGeEvents(), 500, 200000, ""),
+			spinner("maxGeEvents", config.maxGeEvents(), 500, 500000, ""),
 			"Purchase and sale history read from this log, so a bigger number reaches further back.");
 
 		return section("Grand Exchange log", "", grid);

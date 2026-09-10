@@ -118,22 +118,32 @@ class AccountStore
 	 */
 	synchronized boolean flushIfDirty()
 	{
-		if (dirty)
+		if (!dirty)
+		{
+			return false;
+		}
+		// Cleared only on success. Clearing first meant a failed write - a full
+		// disk, or the file briefly locked by a sync tool - silently discarded
+		// everything accumulated since the last flush, with one log line and no
+		// retry until something else marked the store dirty.
+		if (writeToDisk())
 		{
 			dirty = false;
-			writeToDisk();
 			return true;
 		}
 		return false;
 	}
 
-	private synchronized void writeToDisk()
+	/**
+	 * @return {@code true} only if the file was fully written and swapped in
+	 */
+	private synchronized boolean writeToDisk()
 	{
 		File dir = dataFile.getParentFile();
 		if (!dir.exists() && !dir.mkdirs())
 		{
 			log.warn("Failed to create account tracker directory {}", dir);
-			return;
+			return false;
 		}
 
 		File tmp = new File(dir, FILE_NAME + ".tmp");
@@ -144,7 +154,7 @@ class AccountStore
 		catch (IOException e)
 		{
 			log.warn("Failed to write account tracker data", e);
-			return;
+			return false;
 		}
 
 		try
@@ -153,10 +163,12 @@ class AccountStore
 			// destination on Windows, unlike POSIX rename() - Files.move()
 			// with REPLACE_EXISTING handles that correctly everywhere.
 			Files.move(tmp.toPath(), dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+			return true;
 		}
 		catch (IOException e)
 		{
 			log.warn("Failed to replace account tracker data file", e);
+			return false;
 		}
 	}
 
@@ -208,9 +220,26 @@ class AccountStore
 	synchronized void updateSkill(long accountHash, String skillName, int realLevel, int xp)
 	{
 		AccountRecord record = findOrCreate(accountHash);
-		record.skillLevels.put(skillName, realLevel);
-		record.skillXp.put(skillName, xp);
-		record.combatLevel = CombatLevel.calculate(record.skillLevels);
+
+		// Replaced wholesale rather than mutated in place, like every other
+		// collection on a record. These two maps were the exception, and it was
+		// a real bug: this runs on the client thread under this monitor, while
+		// HistorySnapshot.of copies the same maps from the executor thread
+		// under HistoryStore's monitor - different locks, so no mutual
+		// exclusion. Training a skill during a flush threw
+		// ConcurrentModificationException out of periodicFlush, which
+		// ScheduledThreadPoolExecutor treats as fatal to the task: flushing and
+		// UI refresh stopped for the rest of the session.
+		//
+		// Copying two ~23-entry maps per XP drop is nothing next to that.
+		Map<String, Integer> levels = new HashMap<>(record.skillLevels);
+		Map<String, Integer> experience = new HashMap<>(record.skillXp);
+		levels.put(skillName, realLevel);
+		experience.put(skillName, xp);
+
+		record.skillLevels = levels;
+		record.skillXp = experience;
+		record.combatLevel = CombatLevel.calculate(levels);
 		markDirty();
 	}
 

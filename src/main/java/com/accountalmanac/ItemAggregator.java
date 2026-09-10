@@ -144,7 +144,8 @@ final class ItemAggregator
 	 * Total wealth per account - bank plus GE escrow - ordered richest
 	 * first. Drives the "wealth split across accounts" pie.
 	 */
-	static List<Slice> wealthByAccount(List<AccountRecord> accounts)
+	static List<Slice> wealthByAccount(List<AccountRecord> accounts,
+		java.util.function.Function<AccountRecord, String> nameOf)
 	{
 		List<Slice> slices = new ArrayList<>();
 		for (AccountRecord record : accounts)
@@ -152,7 +153,11 @@ final class ItemAggregator
 			long wealth = record.totalWealth();
 			if (wealth > 0L)
 			{
-				slices.add(new Slice(record.label(), wealth, record.accountHash));
+				// The caller supplies the name so the privacy setting applies.
+				// This used record.label() directly, which is the deliberately
+				// unmasked persistence accessor - so with masking on, the wealth
+				// pie's legend still listed every real character name.
+				slices.add(new Slice(nameOf.apply(record), wealth, record.accountHash));
 			}
 		}
 		slices.sort(Comparator.comparingLong((Slice s) -> s.value).reversed());

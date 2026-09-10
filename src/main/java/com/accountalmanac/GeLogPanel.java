@@ -42,6 +42,15 @@ class GeLogPanel extends JPanel
 	private static final String ALL_ACCOUNTS = "All accounts";
 
 	private final GeEventStore geEventStore;
+	private final AccountAlmanacConfig config;
+
+	/**
+	 * Item sprites for the log's item column.
+	 *
+	 * <p>Created by the caller, which holds the ItemManager needed to fetch
+	 * them. Null-safe: without one the column falls back to names alone.
+	 */
+	private ItemIconCache itemIcons;
 
 	/**
 	 * Resolves the name to show for an event's account.
@@ -76,9 +85,10 @@ class GeLogPanel extends JPanel
 	private boolean populating;
 	private List<GeEvent> events = new ArrayList<>();
 
-	GeLogPanel(GeEventStore geEventStore)
+	GeLogPanel(GeEventStore geEventStore, AccountAlmanacConfig config)
 	{
 		this.geEventStore = geEventStore;
+		this.config = config;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -145,6 +155,12 @@ class GeLogPanel extends JPanel
 		}
 		table.getColumnModel().getColumn(0).setPreferredWidth(130);
 		return table;
+	}
+
+	/** Supplies the sprite cache used by the item column. */
+	void setItemIcons(ItemIconCache icons)
+	{
+		this.itemIcons = icons;
 	}
 
 	/** Supplies current market prices, for the gain-potential column. */

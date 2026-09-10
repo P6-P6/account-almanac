@@ -174,7 +174,7 @@ class WealthViewerFrame extends JFrame
 		this.statsGrid = new StatsGridPanel(skillIconManager);
 		this.itemIcons = new ItemIconCache(itemManager, itemTable);
 		this.offerIcons = new ItemIconCache(itemManager, offerTable);
-		this.geLogPanel = new GeLogPanel(geEventStore);
+		this.geLogPanel = new GeLogPanel(geEventStore, config);
 		this.settingsPanel = new SettingsPanel(config, configManager, plugin, store,
 			historyStore, geEventStore, this::reload);
 
@@ -1890,7 +1890,8 @@ class WealthViewerFrame extends JFrame
 
 		reloadOffers(accounts);
 
-		wealthChart.setSlices(ItemAggregator.wealthByAccount(accounts), config.maxChartSlices());
+		wealthChart.setSlices(
+			ItemAggregator.wealthByAccount(accounts, this::nameOf), config.maxChartSlices());
 
 		long grand = 0L;
 		for (AccountRecord record : accounts)

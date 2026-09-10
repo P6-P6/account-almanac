@@ -142,16 +142,23 @@ class AccountHistory
 			return false;
 		}
 
+		// Replaced wholesale rather than mutated, for the same reason the skill
+		// maps are: this runs on the executor thread while the Swing thread
+		// iterates the list to render the Wealth history tab.
 		HistorySnapshot last = latest();
 		if (last == null)
 		{
-			snapshots.add(snapshot);
+			List<HistorySnapshot> updated = new ArrayList<>(snapshots);
+			updated.add(snapshot);
+			snapshots = updated;
 			return true;
 		}
 
 		if (snapshot.at - last.at >= minIntervalMillis)
 		{
-			snapshots.add(snapshot);
+			List<HistorySnapshot> updated = new ArrayList<>(snapshots);
+			updated.add(snapshot);
+			snapshots = updated;
 			prune(snapshot.at);
 			return true;
 		}
@@ -163,7 +170,9 @@ class AccountHistory
 			|| last.totalXp != snapshot.totalXp
 			|| last.totalLevel != snapshot.totalLevel)
 		{
-			snapshots.set(snapshots.size() - 1, snapshot);
+			List<HistorySnapshot> updated = new ArrayList<>(snapshots);
+			updated.set(updated.size() - 1, snapshot);
+			snapshots = updated;
 			return true;
 		}
 

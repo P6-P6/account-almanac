@@ -465,6 +465,18 @@ public interface AccountAlmanacConfig extends Config
 	// ------------------------------------------------------------------
 
 	@ConfigItem(
+		keyName = "geItemDisplay",
+		name = "Items in the log",
+		description = "Whether the Grand Exchange log and trade history show an item's icon, its name, or both.",
+		position = 54,
+		section = geSection
+	)
+	default ItemDisplayMode geItemDisplay()
+	{
+		return ItemDisplayMode.ICON_AND_NAME;
+	}
+
+	@ConfigItem(
 		keyName = "geProgressBar",
 		name = "Progress as a bar",
 		description = "Draw Grand Exchange offer progress as a filled bar instead of a fraction. The bar turns green when the offer is complete.",
