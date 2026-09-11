@@ -28,6 +28,7 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.vars.AccountType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -384,6 +385,7 @@ public class AccountAlmanacPlugin extends Plugin
 		{
 			tryUpdateDisplayName();
 			tryUpdatePlaytime();
+			tryUpdateQuestPoints();
 		}
 	}
 
@@ -617,6 +619,27 @@ public class AccountAlmanacPlugin extends Plugin
 		}
 		store.updatePlaytime(currentAccountHash,
 			client.getVarbitValue(VarbitID.ACCOUNT_SUMMARY_DISPLAY_PLAYTIME));
+	}
+
+	/**
+	 * Captures the account's quest points and the game's current maximum.
+	 *
+	 * <p>Read on a tick for the same reason as playtime: neither var is
+	 * populated on the exact tick the game state flips to logged in. The
+	 * store ignores a zero maximum, so an early read costs nothing.
+	 *
+	 * <p>The maximum comes from the game rather than a constant in here,
+	 * so a quest release moves the denominator without a plugin update.
+	 */
+	private void tryUpdateQuestPoints()
+	{
+		if (currentAccountHash == null)
+		{
+			return;
+		}
+		store.updateQuestPoints(currentAccountHash,
+			client.getVarpValue(VarPlayerID.QP),
+			client.getVarbitValue(VarbitID.QP_MAX));
 	}
 
 	@Subscribe

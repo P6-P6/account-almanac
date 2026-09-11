@@ -278,6 +278,30 @@ class AccountStore
 		}
 	}
 
+	/**
+	 * Records the account's quest points and the game's current maximum.
+	 *
+	 * <p>A maximum of zero is ignored, the same way playtime ignores zero:
+	 * the varbit is unpopulated for the first few ticks after login, and a
+	 * zero denominator would render as an obviously wrong "0/0". The score
+	 * itself is trusted at zero, because a fresh account really does have
+	 * none.
+	 */
+	synchronized void updateQuestPoints(long accountHash, int points, int max)
+	{
+		if (max <= 0 || points < 0)
+		{
+			return;
+		}
+		AccountRecord record = findOrCreate(accountHash);
+		if (record.questPoints != points || record.questPointsMax != max)
+		{
+			record.questPoints = points;
+			record.questPointsMax = max;
+			markDirty();
+		}
+	}
+
 	synchronized void updateCategory(long accountHash, String category)
 	{
 		AccountRecord record = findOrCreate(accountHash);

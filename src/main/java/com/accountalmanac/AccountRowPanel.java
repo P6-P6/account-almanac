@@ -177,6 +177,14 @@ class AccountRowPanel extends JPanel
 			}
 			meta.append(Format.exact(record.totalLevel())).append(" total");
 		}
+		if (record.hasQuestPoints())
+		{
+			if (meta.length() > 0)
+			{
+				meta.append("  -  ");
+			}
+			meta.append(record.questPointsLabel()).append(" qp");
+		}
 		if (!record.bankItems.isEmpty())
 		{
 			if (meta.length() > 0)

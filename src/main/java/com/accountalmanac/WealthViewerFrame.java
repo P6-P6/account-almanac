@@ -136,6 +136,10 @@ class WealthViewerFrame extends JFrame
 	private final JLabel highAlchLabel = new JLabel();
 	private final JLabel playtimeLabel = new JLabel();
 	private final SkillTotalsTableModel skillTotalsModel = new SkillTotalsTableModel();
+	private final CuriosityTableModel randomEventModel = new CuriosityTableModel(true);
+	private final CuriosityTableModel burntModel = new CuriosityTableModel(false);
+	private final JLabel randomEventSummary = new JLabel();
+	private final JLabel burntSummary = new JLabel();
 
 	private final ItemIconCache itemIcons;
 	private final ItemIconCache offerIcons;
@@ -580,7 +584,8 @@ class WealthViewerFrame extends JFrame
 		table.setRowHeight(24);
 		table.setFillsViewportHeight(true);
 		table.setToolTipText("Double-click a row to view its stats");
-		setRenderer(table, gpRenderer(), 8, 9, 10);
+		setRenderer(table, gpRenderer(), 9, 10, 11);
+		setRenderer(table, questPointsRenderer(), 8);
 		// Group (3) and Type (4) both name the account type, so both get the helm.
 		setRenderer(table, accountTypeIconRenderer(), 3, 4);
 		// Last login and days-since are the two columns the green/yellow/red
@@ -1325,6 +1330,148 @@ class WealthViewerFrame extends JFrame
 	 * account's own view can show. Everything here comes from data already
 	 * captured for other tabs; nothing new is recorded to build this.
 	 */
+	/**
+	 * Counts a chosen set of items across every tracked account.
+	 *
+	 * <p>Backs both curiosity tables on the Interesting tab - the random event
+	 * keepsakes and the burnt cooking failures. One model rather than two
+	 * because the only thing that differs is which items qualify and whether
+	 * a source column is worth showing.
+	 *
+	 * <p>Counts come from bank snapshots, so an account whose bank has never
+	 * been opened contributes nothing. That is an unseen bank rather than an
+	 * empty one, and the tab says so.
+	 */
+	private static class CuriosityTableModel extends AbstractTableModel
+	{
+		private static final String[] EVENT_COLUMNS = {"Item", "From", "Held", "Accounts"};
+		private static final String[] BURNT_COLUMNS = {"Item", "Held", "Accounts"};
+
+		private final boolean withSource;
+		private final List<Object[]> rows = new ArrayList<>();
+		private long grandTotal;
+		private int holdingAccounts;
+
+		CuriosityTableModel(boolean withSource)
+		{
+			this.withSource = withSource;
+		}
+
+		private String[] columns()
+		{
+			return withSource ? EVENT_COLUMNS : BURNT_COLUMNS;
+		}
+
+		long grandTotal()
+		{
+			return grandTotal;
+		}
+
+		int distinctItems()
+		{
+			return rows.size();
+		}
+
+		int holdingAccounts()
+		{
+			return holdingAccounts;
+		}
+
+		/**
+		 * Rebuilds from the supplied accounts.
+		 *
+		 * <p>Keyed by item id so a renamed item still aggregates onto one row,
+		 * with the most recently seen display name winning. Ordered by total
+		 * held descending, which is the order the question "what have I got a
+		 * pile of" wants to be answered in.
+		 */
+		void setAccounts(List<AccountRecord> accounts, boolean randomEvents)
+		{
+			Map<Integer, long[]> totals = new java.util.LinkedHashMap<>();
+			Map<Integer, String> names = new java.util.LinkedHashMap<>();
+			java.util.Set<Long> seen = new java.util.HashSet<>();
+
+			for (AccountRecord record : accounts)
+			{
+				boolean counted = false;
+				for (BankItem item : record.bankItems)
+				{
+					boolean qualifies = randomEvents
+						? RandomEventItems.isRandomEventItem(item.id)
+						: RandomEventItems.isBurnt(item.name);
+					if (!qualifies)
+					{
+						continue;
+					}
+					long[] cell = totals.computeIfAbsent(item.id, k -> new long[2]);
+					cell[0] += item.quantity;
+					cell[1]++;
+					names.put(item.id, item.name);
+					counted = true;
+				}
+				if (counted)
+				{
+					seen.add(record.accountHash);
+				}
+			}
+
+			rows.clear();
+			grandTotal = 0L;
+			holdingAccounts = seen.size();
+
+			List<Map.Entry<Integer, long[]>> ordered = new ArrayList<>(totals.entrySet());
+			ordered.sort((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]));
+
+			for (Map.Entry<Integer, long[]> entry : ordered)
+			{
+				int id = entry.getKey();
+				long held = entry.getValue()[0];
+				long holders = entry.getValue()[1];
+				grandTotal += held;
+				String name = names.getOrDefault(id, "Item " + id);
+				rows.add(withSource
+					? new Object[]{name, RandomEventItems.sourceOf(id), held, (int) holders}
+					: new Object[]{name, held, (int) holders});
+			}
+			fireTableDataChanged();
+		}
+
+		@Override
+		public int getRowCount()
+		{
+			return rows.size();
+		}
+
+		@Override
+		public int getColumnCount()
+		{
+			return columns().length;
+		}
+
+		@Override
+		public String getColumnName(int column)
+		{
+			return columns()[column];
+		}
+
+		@Override
+		public Class<?> getColumnClass(int column)
+		{
+			int held = withSource ? 2 : 1;
+			if (column == held)
+			{
+				return Long.class;
+			}
+			return column == held + 1 ? Integer.class : String.class;
+		}
+
+		@Override
+		public Object getValueAt(int row, int column)
+		{
+			return rows.get(row)[column];
+		}
+	}
+
 	private JPanel buildInterestingTab()
 	{
 		JPanel wrapper = new JPanel(new BorderLayout());
@@ -1370,9 +1517,48 @@ class WealthViewerFrame extends JFrame
 		top.setOpaque(false);
 		top.add(stats, BorderLayout.NORTH);
 
+		JTabbedPane curiosities = new JTabbedPane();
+		curiosities.addTab("Skill XP", new JScrollPane(skillTable));
+		curiosities.addTab("Random events", buildCuriosityPanel(
+			randomEventModel, randomEventSummary, true));
+		curiosities.addTab("Burnt", buildCuriosityPanel(
+			burntModel, burntSummary, false));
+
 		wrapper.add(top, BorderLayout.NORTH);
-		wrapper.add(new JScrollPane(skillTable), BorderLayout.CENTER);
+		wrapper.add(curiosities, BorderLayout.CENTER);
 		return wrapper;
+	}
+
+	/**
+	 * One curiosity table with a summary line above it.
+	 *
+	 * <p>The summary carries the totals rather than a footer row, so sorting
+	 * the table cannot move it or hide it under a scroll.
+	 */
+	private JPanel buildCuriosityPanel(CuriosityTableModel model, JLabel summary, boolean withSource)
+	{
+		JPanel panel = new JPanel(new BorderLayout());
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+		summary.setForeground(ColorScheme.BRAND_ORANGE);
+		summary.setFont(FontManager.getRunescapeBoldFont());
+		summary.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+
+		JTable table = new JTable(model);
+		table.setAutoCreateRowSorter(true);
+		table.setRowHeight(22);
+		// Held and Accounts are the numeric columns; their index shifts by one
+		// when the source column is present.
+		int held = withSource ? 2 : 1;
+		setRenderer(table, countRenderer(), held, held + 1);
+		// Biggest pile first - the whole point of the table.
+		table.getRowSorter().toggleSortOrder(held);
+		table.getRowSorter().toggleSortOrder(held);
+
+		panel.add(summary, BorderLayout.NORTH);
+		panel.add(new JScrollPane(table), BorderLayout.CENTER);
+		return panel;
 	}
 
 	private void refreshInteresting(List<AccountRecord> accounts)
@@ -1453,6 +1639,60 @@ class WealthViewerFrame extends JFrame
 			: neverOpened + " of " + accounts.size() + " tracked accounts have never had their bank opened");
 
 		skillTotalsModel.setAccounts(accounts, config.namePrivacy());
+
+		randomEventModel.setAccounts(accounts, true);
+		burntModel.setAccounts(accounts, false);
+		updateCuriositySummaries(accounts);
+	}
+
+	/**
+	 * Summary lines above the two curiosity tables.
+	 *
+	 * <p>Both distinguish "nothing held" from "nothing seen": an account whose
+	 * bank has never been opened cannot contribute, and saying "none" when the
+	 * truth is "not looked yet" would be wrong.
+	 */
+	private void updateCuriositySummaries(List<AccountRecord> accounts)
+	{
+		int withBank = 0;
+		for (AccountRecord record : accounts)
+		{
+			if (record.hasBankSnapshot())
+			{
+				withBank++;
+			}
+		}
+
+		if (withBank == 0)
+		{
+			String none = "No bank has been opened yet - open one to count these";
+			randomEventSummary.setText(none);
+			burntSummary.setText(none);
+			return;
+		}
+
+		randomEventSummary.setText(String.format(Locale.ROOT,
+			"%s random event item%s across %d of %d account%s   (%d of %d reward items seen)",
+			Format.exact(randomEventModel.grandTotal()),
+			randomEventModel.grandTotal() == 1L ? "" : "s",
+			randomEventModel.holdingAccounts(), withBank,
+			withBank == 1 ? "" : "s",
+			randomEventModel.distinctItems(), RandomEventItems.trackedCount()));
+		randomEventSummary.setToolTipText(
+			"Keepsakes from the random events - frog, lederhosen, mime, camo, "
+				+ "zombie, beekeeper and the rest. Counted from bank snapshots.");
+
+		burntSummary.setText(String.format(Locale.ROOT,
+			"%s burnt item%s across %d of %d account%s   (%d kind%s)",
+			Format.exact(burntModel.grandTotal()),
+			burntModel.grandTotal() == 1L ? "" : "s",
+			burntModel.holdingAccounts(), withBank,
+			withBank == 1 ? "" : "s",
+			burntModel.distinctItems(),
+			burntModel.distinctItems() == 1 ? "" : "s"));
+		burntSummary.setToolTipText(
+			"Everything the game calls \"Burnt something\" - a running tally of "
+				+ "failed cooking still sitting in the banks.");
 	}
 
 	/**
@@ -2136,6 +2376,51 @@ class WealthViewerFrame extends JFrame
 	 * <p>Selected rows keep the table's selection foreground: overriding it
 	 * would make a selected stale row unreadable against the highlight.
 	 */
+	/**
+	 * Quest points as {@code earned/available}.
+	 *
+	 * <p>The cell value is the score alone so the column sorts numerically.
+	 * The denominator is the account's own recorded maximum, read back from
+	 * the record rather than assumed, so an account captured before a quest
+	 * release still shows the total that applied when it was read.
+	 */
+	private DefaultTableCellRenderer questPointsRenderer()
+	{
+		return new DefaultTableCellRenderer()
+		{
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+				boolean selected, boolean focused, int row, int column)
+			{
+				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
+				setHorizontalAlignment(RIGHT);
+
+				AccountRecord record = null;
+				try
+				{
+					record = accountModel.recordAt(t.convertRowIndexToModel(row));
+				}
+				catch (IndexOutOfBoundsException e)
+				{
+					// Row vanished between sort and paint.
+				}
+
+				if (record == null || !record.hasQuestPoints())
+				{
+					setText("-");
+					setToolTipText("Not captured yet - log into this account to record it");
+					return this;
+				}
+
+				setText(record.questPointsLabel());
+				setToolTipText(record.questPoints == record.questPointsMax
+					? "Every quest complete"
+					: (record.questPointsMax - record.questPoints) + " quest points remaining");
+				return this;
+			}
+		};
+	}
+
 	private DefaultTableCellRenderer loginAgeRenderer()
 	{
 		return new DefaultTableCellRenderer()
@@ -2486,13 +2771,13 @@ class WealthViewerFrame extends JFrame
 
 		private static final String[] COLUMNS = {
 			"Login name", "Display name", "Label", "Group", "Type", "Status",
-			"Combat", "Total lvl", "Bank", "GE", "Total",
+			"Combat", "Total lvl", "Quests", "Bank", "GE", "Total",
 			"Last login", "Days", "Bank last seen"
 		};
 
 		/** Column indexes other code needs to address by name rather than number. */
-		static final int COL_LAST_LOGIN = 11;
-		static final int COL_DAYS = 12;
+		static final int COL_LAST_LOGIN = 12;
+		static final int COL_DAYS = 13;
 
 		private List<AccountRecord> rows = new ArrayList<>();
 		private boolean includeGe = true;
@@ -2536,14 +2821,17 @@ class WealthViewerFrame extends JFrame
 		{
 			switch (column)
 			{
+				// Quests holds the score alone so the sorter orders it numerically;
+				// the renderer is what appends the maximum.
 				case 6:
 				case 7:
-				case 12:
-					return Integer.class;
 				case 8:
+				case 13:
+					return Integer.class;
 				case 9:
 				case 10:
 				case 11:
+				case 12:
 					return Long.class;
 				default:
 					return String.class;
@@ -2593,12 +2881,17 @@ class WealthViewerFrame extends JFrame
 				case 7:
 					return record.totalLevel();
 				case 8:
-					return record.bankValue;
+					// Score only. An account that has never been read returns 0
+					// here and sorts to the bottom; the renderer shows it as a
+					// dash rather than a misleading 0/0.
+					return record.questPoints;
 				case 9:
-					return record.geValue();
+					return record.bankValue;
 				case 10:
-					return includeGe ? record.totalWealth() : record.bankValue;
+					return record.geValue();
 				case 11:
+					return includeGe ? record.totalWealth() : record.bankValue;
+				case 12:
 					// The raw timestamp, not the formatted string. The column
 					// used to hold text and relied on yyyy-MM-dd sorting
 					// lexically, which silently stopped being true the moment
@@ -2606,12 +2899,12 @@ class WealthViewerFrame extends JFrame
 					// OCT alphabetically but after it in a year. The renderer
 					// formats it; the sorter sees a number and is always right.
 					return record.lastLoginAt;
-				case 12:
+				case 13:
 				{
 					long days = LoginAge.daysSince(record.lastLoginAt, now);
 					return days < 0L ? -1 : (int) Math.min(Integer.MAX_VALUE, days);
 				}
-				case 13:
+				case 14:
 					return record.hasBankSnapshot()
 						? Format.relativeTime(record.lastSnapshotAt)
 						: "never opened";

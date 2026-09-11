@@ -95,6 +95,28 @@ class AccountRecord
 	 */
 	int playtimeMinutes;
 
+	/**
+	 * Quest points earned, as reported by the game.
+	 *
+	 * <p>Read from {@code VarPlayerID.QP}. 0 means either a genuinely
+	 * questless account or one that has not logged in since this started
+	 * being captured; {@link #questPointsMax} tells them apart, since it is
+	 * only ever non-zero once a capture has happened.
+	 */
+	int questPoints;
+
+	/**
+	 * Quest points available in the game at the time of capture, from
+	 * {@code VarbitID.QP_MAX}.
+	 *
+	 * <p>Stored per account rather than as one global constant because it
+	 * rises with every quest release, and accounts are captured at different
+	 * times. Showing a stale total beside a fresh one would be wrong in a way
+	 * the user cannot see; keeping each account's own denominator means the
+	 * fraction always reflects what the game said when that account was read.
+	 */
+	int questPointsMax;
+
 	/** Total value of {@link #bankItems} as of {@link #lastUpdated}. */
 	long bankValue;
 	long lastUpdated;
@@ -218,6 +240,24 @@ class AccountRecord
 	long totalWealth()
 	{
 		return bankValue + geValue();
+	}
+
+	/**
+	 * Whether quest points have ever been read for this account.
+	 *
+	 * <p>Keyed on the maximum rather than the score, because a real account
+	 * can sit on zero quest points indefinitely, while the maximum is never
+	 * zero once the game has reported it.
+	 */
+	boolean hasQuestPoints()
+	{
+		return questPointsMax > 0;
+	}
+
+	/** Quest points as {@code earned/available}, or a dash when never captured. */
+	String questPointsLabel()
+	{
+		return hasQuestPoints() ? questPoints + "/" + questPointsMax : "-";
 	}
 
 	boolean hasBankSnapshot()
