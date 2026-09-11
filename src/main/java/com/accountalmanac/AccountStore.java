@@ -499,6 +499,36 @@ class AccountStore
 	 *
 	 * @return {@code true} if anything was filled in
 	 */
+	/**
+	 * Fills in the members flag for stored items that predate it being
+	 * recorded.
+	 *
+	 * <p>Unlike the alch backfill this overwrites a known value rather than
+	 * only filling blanks: whether an item is members-only is a property of
+	 * the item, and if the game changes it the newer answer is the right one.
+	 */
+	synchronized boolean applyMembersFlags(Map<Integer, Boolean> membersById)
+	{
+		boolean changed = false;
+		for (AccountRecord record : data.accounts)
+		{
+			for (BankItem item : record.bankItems)
+			{
+				Boolean members = membersById.get(item.id);
+				if (members != null && !members.equals(item.members))
+				{
+					item.members = members;
+					changed = true;
+				}
+			}
+		}
+		if (changed)
+		{
+			markDirty();
+		}
+		return changed;
+	}
+
 	synchronized boolean applyAlchPrices(Map<Integer, Integer> alchById)
 	{
 		boolean changed = false;

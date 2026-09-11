@@ -31,6 +31,9 @@ final class ItemAggregator
 		long totalValue;
 		int unitPrice;
 
+		/** Members-only, or null when no holder has recorded it yet. */
+		Boolean members;
+
 		/** Account hash to quantity held, only for accounts holding it. */
 		final Map<Long, Long> byAccount = new LinkedHashMap<>();
 
@@ -84,6 +87,12 @@ final class ItemAggregator
 				// disagree between accounts. The most recently seen price
 				// wins, which is what "Refresh prices" converges everything to.
 				total.unitPrice = item.unitPrice;
+				// Any holder that has recorded it answers for the item; they all
+				// describe the same item id.
+				if (item.members != null)
+				{
+					total.members = item.members;
+				}
 				total.byAccount.merge(record.accountHash, (long) item.quantity, Long::sum);
 			}
 

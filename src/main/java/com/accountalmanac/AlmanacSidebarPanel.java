@@ -17,6 +17,7 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -60,6 +61,7 @@ class AlmanacSidebarPanel extends PluginPanel
 	private final AccountAlmanacPlugin plugin;
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
+	private final SpriteManager spriteManager;
 
 	private final JLabel totalLabel = new JLabel();
 	private final JLabel breakdownLabel = new JLabel();
@@ -94,7 +96,7 @@ class AlmanacSidebarPanel extends PluginPanel
 	AlmanacSidebarPanel(AccountStore store, HistoryStore historyStore, GeEventStore geEventStore,
 		AccountAlmanacConfig config, ConfigManager configManager,
 		AccountAlmanacPlugin plugin, ItemManager itemManager,
-		SkillIconManager skillIconManager)
+		SkillIconManager skillIconManager, SpriteManager spriteManager)
 	{
 		super();
 		this.store = store;
@@ -103,6 +105,7 @@ class AlmanacSidebarPanel extends PluginPanel
 		this.config = config;
 		this.configManager = configManager;
 		this.plugin = plugin;
+		this.spriteManager = spriteManager;
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 
@@ -223,7 +226,7 @@ class AlmanacSidebarPanel extends PluginPanel
 		if (viewer == null)
 		{
 			viewer = new WealthViewerFrame(store, historyStore, geEventStore, config,
-				configManager, plugin, itemManager, skillIconManager);
+				configManager, plugin, itemManager, skillIconManager, spriteManager);
 		}
 	}
 
@@ -366,8 +369,11 @@ class AlmanacSidebarPanel extends PluginPanel
 			return;
 		}
 
-		lastLoginLabel.setText("<html>Last login: <b>"
-			+ escape(NameMasker.display(mostRecent, config.namePrivacy())) + "</b><br>"
+		// No <b> here. This label is set in the RuneScape small font, which
+		// has no bold face, so Swing synthesises one by double-striking the
+		// glyphs - which renders as a blur beside the crisp text around it.
+		lastLoginLabel.setText("<html>Last login: "
+			+ escape(NameMasker.display(mostRecent, config.namePrivacy())) + "<br>"
 			+ LoginAge.friendly(mostRecent.lastLoginAt) + "</html>");
 		lastLoginLabel.setForeground(LoginAgeColours.forTimestamp(mostRecent.lastLoginAt, now, config));
 		lastLoginLabel.setToolTipText(LoginAge.describeAge(mostRecent.lastLoginAt, now)

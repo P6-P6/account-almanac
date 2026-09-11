@@ -24,6 +24,13 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import java.awt.Toolkit;
+import java.util.HashMap;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
+import javax.swing.ToolTipManager;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
@@ -42,6 +49,7 @@ import javax.swing.table.TableRowSorter;
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 
@@ -75,6 +83,7 @@ class WealthViewerFrame extends JFrame
 	private final AccountAlmanacConfig config;
 	private final AccountAlmanacPlugin plugin;
 	private final ItemManager itemManager;
+	private final SpriteManager spriteManager;
 	private final SkillIconManager skillIconManager;
 
 	private final GeLogPanel geLogPanel;
@@ -136,6 +145,8 @@ class WealthViewerFrame extends JFrame
 	private final JLabel highAlchLabel = new JLabel();
 	private final JLabel playtimeLabel = new JLabel();
 	private final SkillTotalsTableModel skillTotalsModel = new SkillTotalsTableModel();
+	private final JComboBox<String> membershipFilter =
+		new JComboBox<>(new String[]{"All items", "Free-to-play", "Members"});
 	private final CuriosityTableModel randomEventModel = new CuriosityTableModel(true);
 	private final CuriosityTableModel burntModel = new CuriosityTableModel(false);
 	private final JLabel randomEventSummary = new JLabel();
@@ -171,7 +182,7 @@ class WealthViewerFrame extends JFrame
 	WealthViewerFrame(AccountStore store, HistoryStore historyStore, GeEventStore geEventStore,
 		AccountAlmanacConfig config, net.runelite.client.config.ConfigManager configManager,
 		AccountAlmanacPlugin plugin, ItemManager itemManager,
-		SkillIconManager skillIconManager)
+		SkillIconManager skillIconManager, SpriteManager spriteManager)
 	{
 		super("Account Almanac");
 		this.store = store;
@@ -180,6 +191,7 @@ class WealthViewerFrame extends JFrame
 		this.config = config;
 		this.plugin = plugin;
 		this.itemManager = itemManager;
+		this.spriteManager = spriteManager;
 		this.skillIconManager = skillIconManager;
 		this.statsGrid = new StatsGridPanel(skillIconManager);
 		this.itemIcons = new ItemIconCache(itemManager, itemTable);
@@ -229,23 +241,347 @@ class WealthViewerFrame extends JFrame
 	 * was selected before - which for a delete is the kind of mistake that is
 	 * only noticed afterwards.
 	 */
+	/**
+	 * Opens the bank screenshot dialog for the selected account.
+	 *
+	 * <p>Drawn from the stored snapshot, so it works for an account that is not
+	 * logged in - which is the case this plugin exists for. An account whose
+	 * bank has never been opened has nothing to draw, and says so rather than
+	 * producing an empty grid that looks like an empty bank.
+	 */
+	private void screenshotSelectedBank(JTable table)
+	{
+		int viewRow = table.getSelectedRow();
+		if (viewRow < 0)
+		{
+			return;
+		}
+		AccountRecord record = accountModel.recordAt(table.convertRowIndexToModel(viewRow));
+		if (record == null)
+		{
+			return;
+		}
+		if (!record.hasBankSnapshot() || record.bankItems.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"This account's bank has never been opened, so there is nothing stored to draw.",
+				"Screenshot bank", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		showBankScreenshotDialog(nameOf(record), record.bankItems,
+			"bank last seen " + Format.relativeTime(record.lastSnapshotAt));
+	}
+
+	/**
+	 * Screenshots every item held across the whole roster, not one bank.
+	 *
+	 * <p>Built from the same aggregate the All items tab shows, so the picture
+	 * agrees with the table: one slot per distinct item, quantities summed
+	 * across every visible account, priced at the most recently seen price.
+	 *
+	 * <p>Quantities are summed as longs and then clamped into the slot, because
+	 * forty accounts of stacked runes can exceed what one in-game stack can
+	 * hold - the total is real even where no single bank could contain it.
+	 */
+	private void screenshotAllItems()
+	{
+		List<ItemAggregator.ItemTotal> totals = ItemAggregator.aggregate(visibleAccounts);
+		if (totals.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"No bank snapshots yet, so there is nothing to draw.",
+				"Screenshot all items", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		List<BankItem> items = new ArrayList<>(totals.size());
+		for (ItemAggregator.ItemTotal total : totals)
+		{
+			int quantity = (int) Math.min(Integer.MAX_VALUE, total.totalQuantity);
+			// The members flag has to come along, or the membership filter has
+			// nothing to test on the roster-wide export.
+			items.add(new BankItem(total.itemId, quantity, total.name, total.unitPrice, 0,
+				total.members));
+		}
+
+		showBankScreenshotDialog("All items",  items,
+			"every item across " + visibleAccounts.size()
+				+ (visibleAccounts.size() == 1 ? " account" : " accounts"));
+	}
+
+	private void showBankScreenshotDialog(String title, List<BankItem> bankItems,
+		String subtitle)
+	{
+		JDialog dialog = new JDialog(this, "Bank screenshot - " + title, false);
+		dialog.setLayout(new BorderLayout(0, 6));
+
+		JComboBox<BankScreenshot.Sort> sortBox =
+			new JComboBox<>(BankScreenshot.Sort.values());
+		sortBox.setSelectedItem(BankScreenshot.Sort.VALUE);
+
+		JComboBox<BankScreenshot.MinQuantity> minQtyBox =
+			new JComboBox<>(BankScreenshot.MinQuantity.values());
+		JComboBox<BankScreenshot.MinValue> minValBox =
+			new JComboBox<>(BankScreenshot.MinValue.values());
+		minQtyBox.setToolTipText("Hide small stacks - a high stack value still keeps one");
+		minValBox.setToolTipText("Hide cheap stacks - a large quantity still keeps one");
+
+		JComboBox<BankScreenshot.Membership> f2pBox =
+			new JComboBox<>(BankScreenshot.Membership.values());
+		f2pBox.setToolTipText("Members-only, free-to-play, or both. Items whose flag has not been captured show either way - refresh prices to fill them in");
+
+		JComboBox<String> colsBox = new JComboBox<>(
+			new String[]{"Auto width", "8 wide (game)", "12 wide", "16 wide", "20 wide", "24 wide"});
+		colsBox.setToolTipText("Auto keeps the picture roughly landscape so it can be zoomed");
+
+		JLabel preview = new JLabel();
+		preview.setVerticalAlignment(SwingConstants.TOP);
+		// A tooltip needs to appear over a slot rather than over the label, so
+		// the delay is dropped and the text is recomputed on every move.
+		ToolTipManager.sharedInstance().registerComponent(preview);
+		preview.setHorizontalAlignment(SwingConstants.CENTER);
+
+		// One cache for this dialog. Sprites fill themselves in after loading,
+		// so a redraw is scheduled as they arrive rather than blocking on them.
+		final Map<Integer, java.awt.Image> sprites = new HashMap<>();
+		final Map<Integer, BufferedImage> frameSprites = new HashMap<>();
+		final boolean[] redrawPending = {false};
+		final BankScreenshot.Rendered[] current = {null};
+
+		Runnable draw = () ->
+		{
+			BankScreenshot.Sort sort =
+				(BankScreenshot.Sort) sortBox.getSelectedItem();
+			BankScreenshot.MinQuantity minQ =
+				(BankScreenshot.MinQuantity) minQtyBox.getSelectedItem();
+			BankScreenshot.MinValue minV =
+				(BankScreenshot.MinValue) minValBox.getSelectedItem();
+			BankScreenshot.Membership mem =
+				(BankScreenshot.Membership) f2pBox.getSelectedItem();
+			int cols = colsBox.getSelectedIndex() == 0 ? 0
+				: Integer.parseInt(String.valueOf(colsBox.getSelectedItem()).split(" ")[0]);
+			current[0] = BankScreenshot.render(title, bankItems,
+				sort == null ? BankScreenshot.Sort.VALUE : sort,
+				id -> sprites.get(id), subtitle,
+				minQ == null ? BankScreenshot.MinQuantity.ANY : minQ,
+				minV == null ? BankScreenshot.MinValue.ANY : minV,
+				mem == null ? BankScreenshot.Membership.ANY : mem, cols,
+				id -> frameSprites.get(id));
+			preview.setIcon(new ImageIcon(current[0].image));
+			dialog.pack();
+		};
+
+		// The window frame is the game's own steel border, pulled from the
+		// sprite cache. Each arrives on its own, so the preview simply redraws
+		// as they land; a missing one falls back to a drawn bevel.
+		if (spriteManager != null)
+		{
+			for (int id : BankScreenshot.framePieces())
+			{
+				final int spriteId = id;
+				spriteManager.getSpriteAsync(spriteId, 0, img ->
+					SwingUtilities.invokeLater(() ->
+					{
+						if (img != null)
+						{
+							frameSprites.put(spriteId, img);
+							draw.run();
+						}
+					}));
+			}
+		}
+
+		if (itemManager != null)
+		{
+			for (BankItem item : bankItems)
+			{
+				if (item.id <= 0 || sprites.containsKey(item.id))
+				{
+					continue;
+				}
+				// Quantity drives the stack variant, so coins render as the big
+				// pile and arrows as the tall bundle rather than a single unit.
+				// stackable=false suppresses RuneLite's own number: the quantity
+				// is drawn separately in the game's stack colours.
+				net.runelite.client.util.AsyncBufferedImage img =
+					itemManager.getImage(item.id, item.quantity, false);
+				sprites.put(item.id, img);
+				img.onLoaded(() ->
+				{
+					// onLoaded fires on the client thread and once per sprite;
+					// coalesce the burst into a single redraw on Swing.
+					synchronized (redrawPending)
+					{
+						if (redrawPending[0])
+						{
+							return;
+						}
+						redrawPending[0] = true;
+					}
+					SwingUtilities.invokeLater(() ->
+					{
+						synchronized (redrawPending)
+						{
+							redrawPending[0] = false;
+						}
+						draw.run();
+					});
+				});
+			}
+		}
+
+		preview.addMouseMotionListener(new java.awt.event.MouseMotionAdapter()
+		{
+			@Override
+			public void mouseMoved(java.awt.event.MouseEvent me)
+			{
+				BankScreenshot.Rendered r = current[0];
+				if (r == null)
+				{
+					preview.setToolTipText(null);
+					return;
+				}
+				// The label centres the image horizontally, so the pointer has to
+				// be shifted back into image space before it can hit a slot.
+				int ox = Math.max(0, (preview.getWidth() - r.image.getWidth()) / 2);
+				BankItem hit = r.itemAt(me.getX() - ox, me.getY());
+				if (hit == null)
+				{
+					preview.setToolTipText(null);
+					return;
+				}
+				// The drawn stack number is truncated the way the game truncates
+				// it, so the exact figure is only available here.
+				preview.setToolTipText(hit.name + "  x" + Format.exact(hit.quantity)
+					+ "  (" + Format.gp(hit.totalValue()) + ")");
+			}
+		});
+
+		sortBox.addActionListener(e -> draw.run());
+		minQtyBox.addActionListener(e -> draw.run());
+		minValBox.addActionListener(e -> draw.run());
+		f2pBox.addActionListener(e -> draw.run());
+		colsBox.addActionListener(e -> draw.run());
+
+		JButton save = new JButton("Save PNG...");
+		save.addActionListener(e -> saveBankImage(current[0] == null ? null : current[0].image, title));
+		JButton copy = new JButton("Copy to clipboard");
+		copy.addActionListener(e ->
+		{
+			if (current[0] != null)
+			{
+				Toolkit.getDefaultToolkit().getSystemClipboard()
+					.setContents(new ImageTransferable(current[0].image), null);
+			}
+		});
+
+		JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+		controls.add(new JLabel("Sort:"));
+		controls.add(sortBox);
+		controls.add(new JLabel("Min stack:"));
+		controls.add(minQtyBox);
+		controls.add(new JLabel("Min value:"));
+		controls.add(minValBox);
+		controls.add(f2pBox);
+		controls.add(colsBox);
+		controls.add(save);
+		controls.add(copy);
+
+		dialog.add(controls, BorderLayout.NORTH);
+		dialog.add(new JScrollPane(preview), BorderLayout.CENTER);
+		draw.run();
+		dialog.setLocationRelativeTo(this);
+		dialog.setVisible(true);
+	}
+
+	private void saveBankImage(BufferedImage image, String title)
+	{
+		if (image == null)
+		{
+			return;
+		}
+		JFileChooser chooser = new JFileChooser();
+		String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
+			.format(new java.util.Date());
+		chooser.setSelectedFile(new java.io.File(
+			title.replaceAll("[^A-Za-z0-9._-]", "_") + "-bank-" + stamp + ".png"));
+		if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION)
+		{
+			return;
+		}
+		java.io.File target = chooser.getSelectedFile();
+		if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".png"))
+		{
+			target = new java.io.File(target.getParentFile(), target.getName() + ".png");
+		}
+		try
+		{
+			javax.imageio.ImageIO.write(image, "png", target);
+			JOptionPane.showMessageDialog(this, "Saved to:" + System.lineSeparator() + target,
+				"Bank screenshot", JOptionPane.INFORMATION_MESSAGE);
+		}
+		catch (java.io.IOException ex)
+		{
+			JOptionPane.showMessageDialog(this, "Could not write the image: " + ex.getMessage(),
+				"Bank screenshot", JOptionPane.ERROR_MESSAGE);
+		}
+	}
+
+	/** Clipboard wrapper - Swing has no ready-made image transferable. */
+	private static final class ImageTransferable implements java.awt.datatransfer.Transferable
+	{
+		private final java.awt.Image image;
+
+		ImageTransferable(java.awt.Image image)
+		{
+			this.image = image;
+		}
+
+		@Override
+		public java.awt.datatransfer.DataFlavor[] getTransferDataFlavors()
+		{
+			return new java.awt.datatransfer.DataFlavor[]{java.awt.datatransfer.DataFlavor.imageFlavor};
+		}
+
+		@Override
+		public boolean isDataFlavorSupported(java.awt.datatransfer.DataFlavor flavor)
+		{
+			return java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor);
+		}
+
+		@Override
+		public Object getTransferData(java.awt.datatransfer.DataFlavor flavor)
+			throws java.awt.datatransfer.UnsupportedFlavorException
+		{
+			if (!java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor))
+			{
+				throw new java.awt.datatransfer.UnsupportedFlavorException(flavor);
+			}
+			return image;
+		}
+	}
+
 	private void attachAccountContextMenu(JTable table)
 	{
 		JPopupMenu menu = new JPopupMenu();
 		JMenuItem editDisplay = new JMenuItem("Edit display name...");
 		JMenuItem editLabel = new JMenuItem("Edit login label...");
 		JMenuItem editCategory = new JMenuItem("Set group...");
+		JMenuItem shot = new JMenuItem("Screenshot bank...");
 		JMenuItem remove = new JMenuItem("Remove account...");
 
 		menu.add(editDisplay);
 		menu.add(editLabel);
 		menu.add(editCategory);
 		menu.addSeparator();
+		menu.add(shot);
+		menu.addSeparator();
 		menu.add(remove);
 
 		editDisplay.addActionListener(e -> editSelectedName(table, true));
 		editLabel.addActionListener(e -> editSelectedName(table, false));
 		editCategory.addActionListener(e -> editSelectedCategory(table));
+		shot.addActionListener(e -> screenshotSelectedBank(table));
 		remove.addActionListener(e -> confirmRemoveSelected(table));
 
 		table.addMouseListener(new MouseAdapter()
@@ -664,6 +1000,17 @@ class WealthViewerFrame extends JFrame
 		JPanel searchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
 		searchRow.add(new JLabel("Search:"));
 		searchRow.add(searchField);
+		searchRow.add(Box.createHorizontalStrut(10));
+		searchRow.add(new JLabel("Show:"));
+		membershipFilter.setToolTipText(
+			"Split the list by members-only and free-to-play items");
+		membershipFilter.addActionListener(e -> applyFilter());
+		searchRow.add(membershipFilter);
+		JButton shotAll = new JButton("Screenshot all items...");
+		shotAll.setToolTipText("Draw every item held across the roster as one bank image");
+		shotAll.addActionListener(e -> screenshotAllItems());
+		searchRow.add(Box.createHorizontalStrut(10));
+		searchRow.add(shotAll);
 		left.add(searchRow, BorderLayout.NORTH);
 		left.add(new JScrollPane(itemTable), BorderLayout.CENTER);
 
@@ -1349,6 +1696,8 @@ class WealthViewerFrame extends JFrame
 
 		private final boolean withSource;
 		private final List<Object[]> rows = new ArrayList<>();
+		/** Row index to account hash -> quantity, for the per-item pie. */
+		private final List<Map<Long, Long>> rowSplits = new ArrayList<>();
 		private long grandTotal;
 		private int holdingAccounts;
 
@@ -1388,6 +1737,7 @@ class WealthViewerFrame extends JFrame
 		void setAccounts(List<AccountRecord> accounts, boolean randomEvents)
 		{
 			Map<Integer, long[]> totals = new java.util.LinkedHashMap<>();
+			Map<Integer, Map<Long, Long>> splits = new java.util.LinkedHashMap<>();
 			Map<Integer, String> names = new java.util.LinkedHashMap<>();
 			java.util.Set<Long> seen = new java.util.HashSet<>();
 
@@ -1405,6 +1755,8 @@ class WealthViewerFrame extends JFrame
 					}
 					long[] cell = totals.computeIfAbsent(item.id, k -> new long[2]);
 					cell[0] += item.quantity;
+					splits.computeIfAbsent(item.id, k -> new java.util.LinkedHashMap<>())
+						.merge(record.accountHash, (long) item.quantity, Long::sum);
 					cell[1]++;
 					names.put(item.id, item.name);
 					counted = true;
@@ -1416,6 +1768,7 @@ class WealthViewerFrame extends JFrame
 			}
 
 			rows.clear();
+			rowSplits.clear();
 			grandTotal = 0L;
 			holdingAccounts = seen.size();
 
@@ -1432,6 +1785,7 @@ class WealthViewerFrame extends JFrame
 				rows.add(withSource
 					? new Object[]{name, RandomEventItems.sourceOf(id), held, (int) holders}
 					: new Object[]{name, held, (int) holders});
+				rowSplits.add(splits.getOrDefault(id, java.util.Collections.emptyMap()));
 			}
 			fireTableDataChanged();
 		}
@@ -1463,6 +1817,28 @@ class WealthViewerFrame extends JFrame
 				return Long.class;
 			}
 			return column == held + 1 ? Integer.class : String.class;
+		}
+
+		/** Account hash to quantity for one row, for the pie. */
+		Map<Long, Long> splitAt(int modelRow)
+		{
+			return modelRow >= 0 && modelRow < rowSplits.size()
+				? rowSplits.get(modelRow) : java.util.Collections.emptyMap();
+		}
+
+		String nameAt(int modelRow)
+		{
+			return modelRow >= 0 && modelRow < rows.size() ? String.valueOf(rows.get(modelRow)[0]) : "";
+		}
+
+		long heldAt(int modelRow)
+		{
+			if (modelRow < 0 || modelRow >= rows.size())
+			{
+				return 0L;
+			}
+			Object v = rows.get(modelRow)[withSource ? 2 : 1];
+			return v instanceof Number ? ((Number) v).longValue() : 0L;
 		}
 
 		@Override
@@ -1519,7 +1895,7 @@ class WealthViewerFrame extends JFrame
 
 		JTabbedPane curiosities = new JTabbedPane();
 		curiosities.addTab("Skill XP", new JScrollPane(skillTable));
-		curiosities.addTab("Random events", buildCuriosityPanel(
+		curiosities.addTab("Random event items", buildCuriosityPanel(
 			randomEventModel, randomEventSummary, true));
 		curiosities.addTab("Burnt", buildCuriosityPanel(
 			burntModel, burntSummary, false));
@@ -1548,17 +1924,91 @@ class WealthViewerFrame extends JFrame
 		JTable table = new JTable(model);
 		table.setAutoCreateRowSorter(true);
 		table.setRowHeight(22);
-		// Held and Accounts are the numeric columns; their index shifts by one
-		// when the source column is present.
+		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		table.setToolTipText("Select a row to see which accounts hold it");
 		int held = withSource ? 2 : 1;
 		setRenderer(table, countRenderer(), held, held + 1);
 		// Biggest pile first - the whole point of the table.
 		table.getRowSorter().toggleSortOrder(held);
 		table.getRowSorter().toggleSortOrder(held);
 
+		JLabel splitTitle = new JLabel("Select a row");
+		splitTitle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		splitTitle.setFont(FontManager.getRunescapeBoldFont());
+		splitTitle.setBorder(BorderFactory.createEmptyBorder(0, 8, 6, 0));
+
+		PieChartPanel chart = new PieChartPanel(false);
+		chart.setEmptyMessage("Select a row to see which accounts hold it");
+
+		JPanel right = new JPanel(new BorderLayout());
+		right.setOpaque(false);
+		right.add(splitTitle, BorderLayout.NORTH);
+		right.add(chart, BorderLayout.CENTER);
+
+		// Selection drives the pie, so a double-click works as well as a single
+		// one - a double-click selects the row on its way down.
+		table.getSelectionModel().addListSelectionListener(e ->
+		{
+			if (!e.getValueIsAdjusting())
+			{
+				updateCuriositySplit(table, model, splitTitle, chart);
+			}
+		});
+
+		JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+			new JScrollPane(table), right);
+		split.setResizeWeight(0.62);
+		split.setBorder(null);
+
 		panel.add(summary, BorderLayout.NORTH);
-		panel.add(new JScrollPane(table), BorderLayout.CENTER);
+		panel.add(split, BorderLayout.CENTER);
 		return panel;
+	}
+
+	/**
+	 * Repaints the per-item pie beside a curiosity table.
+	 *
+	 * <p>Split by quantity, not value: a burnt shark is worthless, so splitting
+	 * one by GE price would render every wedge as zero. "Who has the pile" is
+	 * the question these tables are for.
+	 */
+	private void updateCuriositySplit(JTable table, CuriosityTableModel model,
+		JLabel title, PieChartPanel chart)
+	{
+		int viewRow = table.getSelectedRow();
+		if (viewRow < 0)
+		{
+			title.setText("Select a row");
+			chart.setSlices(new ArrayList<>(), config.maxChartSlices());
+			return;
+		}
+
+		int modelRow;
+		try
+		{
+			modelRow = table.convertRowIndexToModel(viewRow);
+		}
+		catch (IndexOutOfBoundsException e)
+		{
+			// Row vanished between sort and paint.
+			return;
+		}
+
+		Map<Long, Long> split = model.splitAt(modelRow);
+		Map<Long, String> labels = plugin.accountLabels();
+		List<ItemAggregator.Slice> slices = new ArrayList<>();
+		for (Map.Entry<Long, Long> entry : split.entrySet())
+		{
+			slices.add(new ItemAggregator.Slice(
+				labels.getOrDefault(entry.getKey(), "Account " + Long.toHexString(entry.getKey())),
+				entry.getValue(), entry.getKey()));
+		}
+		slices.sort((a, b) -> Long.compare(b.value, a.value));
+
+		title.setText(String.format(Locale.ROOT, "%s - %s across %d account%s",
+			model.nameAt(modelRow), Format.exact(model.heldAt(modelRow)),
+			split.size(), split.size() == 1 ? "" : "s"));
+		chart.setSlices(slices, config.maxChartSlices());
 	}
 
 	private void refreshInteresting(List<AccountRecord> accounts)
@@ -2034,12 +2484,59 @@ class WealthViewerFrame extends JFrame
 		}
 	}
 
+	/** Rows matching the members/F2P selector alone. */
+	private RowFilter<ItemTableModel, Integer> membershipOnlyFilter(int membership)
+	{
+		return withMembership((RowFilter<ItemTableModel, Integer>) null, membership);
+	}
+
+	/**
+	 * Wraps a filter so the members/F2P selector applies on top of it.
+	 *
+	 * <p>An item whose flag has not been captured yet shows under both. That
+	 * is not evidence of either answer, and dropping it would understate both
+	 * sides; a price refresh fills the flag in.
+	 */
+	private RowFilter<ItemTableModel, Integer> withMembership(
+		final RowFilter<? super ItemTableModel, ? super Integer> inner, final int membership)
+	{
+		return new RowFilter<ItemTableModel, Integer>()
+		{
+			@Override
+			public boolean include(Entry<? extends ItemTableModel, ? extends Integer> entry)
+			{
+				if (inner != null && !inner.include(entry))
+				{
+					return false;
+				}
+				if (membership == 0)
+				{
+					return true;
+				}
+				int row = entry.getIdentifier();
+				if (row < 0 || row >= currentTotals.size())
+				{
+					return false;
+				}
+				Boolean members = currentTotals.get(row).members;
+				if (members == null)
+				{
+					return true;
+				}
+				return membership == 2 ? members : !members;
+			}
+		};
+	}
+
 	private void applyFilter()
 	{
 		String text = searchField.getText();
+		// Combined with the membership selector below: a JTable takes one row
+		// filter, so setting a second would silently replace the first.
+		final int membership = membershipFilter.getSelectedIndex();
 		if (text == null || text.trim().isEmpty())
 		{
-			itemSorter.setRowFilter(null);
+			itemSorter.setRowFilter(membership == 0 ? null : membershipOnlyFilter(membership));
 			return;
 		}
 
@@ -2050,7 +2547,7 @@ class WealthViewerFrame extends JFrame
 		if (trimmed.matches("\\d+"))
 		{
 			final int wantedId = Integer.parseInt(trimmed);
-			itemSorter.setRowFilter(new RowFilter<ItemTableModel, Integer>()
+			RowFilter<ItemTableModel, Integer> byId = new RowFilter<ItemTableModel, Integer>()
 			{
 				@Override
 				public boolean include(Entry<? extends ItemTableModel, ? extends Integer> entry)
@@ -2059,13 +2556,14 @@ class WealthViewerFrame extends JFrame
 					return row >= 0 && row < currentTotals.size()
 						&& currentTotals.get(row).itemId == wantedId;
 				}
-			});
+			};
+			itemSorter.setRowFilter(withMembership(byId, membership));
 			return;
 		}
 		// Quoted so a stray '(' or '*' in the search box is treated as text
 		// rather than blowing up as a malformed regex.
-		itemSorter.setRowFilter(RowFilter.regexFilter(
-			"(?i)" + Pattern.quote(text.trim()), 0));
+		itemSorter.setRowFilter(withMembership(RowFilter.regexFilter(
+			"(?i)" + Pattern.quote(text.trim()), 0), membership));
 	}
 
 	private void updateItemSplit()

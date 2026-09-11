@@ -36,6 +36,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -96,6 +97,9 @@ public class AccountAlmanacPlugin extends Plugin
 	private SkillIconManager skillIconManager;
 
 	@Inject
+	private SpriteManager spriteManager;
+
+	@Inject
 	private ClientToolbar clientToolbar;
 
 	@Inject
@@ -151,7 +155,7 @@ public class AccountAlmanacPlugin extends Plugin
 		LoginAge.applyConfig(config);
 
 		panel = new AlmanacSidebarPanel(store, historyStore, geEventStore, config,
-			configManager, this, itemManager, skillIconManager);
+			configManager, this, itemManager, skillIconManager, spriteManager);
 
 		store.loadAsync(() ->
 		{
@@ -495,7 +499,8 @@ public class AccountAlmanacPlugin extends Plugin
 			{
 				net.runelite.api.ItemComposition composition = itemManager.getItemComposition(canonicalId);
 				merged.put(canonicalId, new BankItem(canonicalId, item.getQuantity(),
-					composition.getName(), unitPrice, composition.getHaPrice()));
+					composition.getName(), unitPrice, composition.getHaPrice(),
+					composition.isMembers()));
 			}
 		}
 
@@ -683,9 +688,14 @@ public class AccountAlmanacPlugin extends Plugin
 			// opened. Collected here so every stored item gets one, rather than
 			// only the ones seen since alch values started being recorded.
 			Map<Integer, Integer> alchPrices = new HashMap<>(ids.size());
+			// Members flag comes from the same composition lookup, so stored
+			// items from before it was recorded get one without a second pass.
+			Map<Integer, Boolean> membersById = new HashMap<>(ids.size());
 			for (Integer id : ids)
 			{
-				int ha = itemManager.getItemComposition(id).getHaPrice();
+				net.runelite.api.ItemComposition comp = itemManager.getItemComposition(id);
+				membersById.put(id, comp.isMembers());
+				int ha = comp.getHaPrice();
 				if (ha > 0)
 				{
 					alchPrices.put(id, ha);
@@ -715,6 +725,7 @@ public class AccountAlmanacPlugin extends Plugin
 				}
 
 				store.applyAlchPrices(alchPrices);
+				store.applyMembersFlags(membersById);
 
 				if (store.applyPrices(prices))
 				{

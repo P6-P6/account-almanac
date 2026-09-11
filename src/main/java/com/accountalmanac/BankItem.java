@@ -31,12 +31,29 @@ class BankItem
 	 */
 	int haPrice;
 
+	/**
+	 * Whether the item is members-only, from the item composition.
+	 *
+	 * <p>Boxed on purpose: {@code null} means never captured, which is a
+	 * different thing from {@code false} meaning free-to-play. Items stored
+	 * before this existed read as null until a price refresh backfills them,
+	 * and the filter treats unknown as its own case rather than quietly
+	 * counting them as F2P.
+	 */
+	Boolean members;
+
 	BankItem()
 	{
 	}
 
 	BankItem(int id, int quantity, String name, int unitPrice, int haPrice)
 	{
+		this(id, quantity, name, unitPrice, haPrice, null);
+	}
+
+	BankItem(int id, int quantity, String name, int unitPrice, int haPrice, Boolean members)
+	{
+		this.members = members;
 		this.id = id;
 		this.quantity = quantity;
 		this.name = name;
