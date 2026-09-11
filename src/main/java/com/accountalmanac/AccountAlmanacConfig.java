@@ -462,6 +462,18 @@ public interface AccountAlmanacConfig extends Config
 	{
 		return true;
 	}
+	@ConfigItem(
+		keyName = "geProgressBarColours",
+		name = "Colour the progress bar",
+		description = "Shade the Grand Exchange progress bar by how far along the offer is - red when nothing has traded, through amber, to green when it is complete. Turn this off for a single colour that only turns green at the end.",
+		position = 54,
+		section = geSection
+	)
+	default boolean geProgressBarColours()
+	{
+		return true;
+	}
+
 
 	@ConfigItem(
 		keyName = "showHighAlch",

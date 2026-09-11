@@ -149,6 +149,40 @@ class GrandExchangeRecord
 	 * any login or a "Refresh prices" fills it in - whereas a bogus billion in
 	 * the totals is not obviously wrong until someone goes looking.
 	 */
+	/**
+	 * How far the listed price sits from the market price, as a fraction.
+	 *
+	 * <p>Positive means listed above market, negative below. Returns null when
+	 * the market price has never been captured, which is a different thing
+	 * from a nil difference and must not be drawn as one.
+	 */
+	Double priceVsMarket()
+	{
+		if (marketPrice <= 0 || pricePerItem <= 0)
+		{
+			return null;
+		}
+		return (pricePerItem - (double) marketPrice) / marketPrice;
+	}
+
+	/**
+	 * Whether the gap favours the account holding this offer.
+	 *
+	 * <p>The same gap means opposite things on the two sides of the book:
+	 * listing a buy below market is a bargain, while listing a sell below it
+	 * is undercutting. Judged here rather than at the drawing site so both the
+	 * table and the export agree.
+	 */
+	boolean priceGapFavourable()
+	{
+		Double gap = priceVsMarket();
+		if (gap == null)
+		{
+			return false;
+		}
+		return isBuy() ? gap <= 0 : gap >= 0;
+	}
+
 	long sellStockValue()
 	{
 		if (marketPrice <= 0)

@@ -283,6 +283,170 @@ class WealthViewerFrame extends JFrame
 	 * forty accounts of stacked runes can exceed what one in-game stack can
 	 * hold - the total is real even where no single bank could contain it.
 	 */
+	/**
+	 * Screenshots every tracked Grand Exchange slot as one image.
+	 *
+	 * <p>Empty slots are left out. They are not offers, and padding the picture
+	 * with blank boxes would say nothing about what is actually on the market.
+	 */
+	private void screenshotOffers()
+	{
+		List<GeScreenshot.Entry> entries = new ArrayList<>();
+		for (AccountRecord record : visibleAccounts)
+		{
+			for (GrandExchangeRecord offer : record.geOffers)
+			{
+				if (offer != null && offer.isActive())
+				{
+					entries.add(new GeScreenshot.Entry(nameOf(record), offer));
+				}
+			}
+		}
+		if (entries.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"No account is holding an open Grand Exchange offer.",
+				"Screenshot offers", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		showGeScreenshotDialog(entries);
+	}
+
+	private void showGeScreenshotDialog(List<GeScreenshot.Entry> entries)
+	{
+		JDialog dialog = new JDialog(this, "Grand Exchange screenshot", false);
+		dialog.setLayout(new BorderLayout(0, 6));
+
+		JComboBox<GeScreenshot.Side> sideBox = new JComboBox<>(GeScreenshot.Side.values());
+		JCheckBox marketGapBox = new JCheckBox("Price vs market", true);
+		marketGapBox.setToolTipText("Show how far each listing sits from the market price - green when the gap favours you, red when it does not");
+		JComboBox<GeScreenshot.Sort> geSortBox =
+			new JComboBox<>(GeScreenshot.Sort.values());
+
+		JLabel preview = new JLabel();
+		preview.setVerticalAlignment(SwingConstants.TOP);
+
+		final Map<Integer, java.awt.Image> sprites = new HashMap<>();
+		final Map<Integer, BufferedImage> frameSprites = new HashMap<>();
+		final boolean[] redrawPending = {false};
+		final BankScreenshot.Rendered[] current = {null};
+
+		Runnable draw = () ->
+		{
+			GeScreenshot.Side side = (GeScreenshot.Side) sideBox.getSelectedItem();
+			GeScreenshot.Sort geSort = (GeScreenshot.Sort) geSortBox.getSelectedItem();
+			current[0] = GeScreenshot.render("Grand Exchange", entries,
+				side == null ? GeScreenshot.Side.ALL : side,
+				geSort == null ? GeScreenshot.Sort.PROGRESS_DESC : geSort,
+				marketGapBox.isSelected(),
+				id -> sprites.get(id), id -> frameSprites.get(id));
+			preview.setIcon(new ImageIcon(current[0].image));
+			dialog.pack();
+		};
+
+		if (spriteManager != null)
+		{
+			for (int id : BankScreenshot.framePieces())
+			{
+				final int spriteId = id;
+				spriteManager.getSpriteAsync(spriteId, 0, img ->
+					SwingUtilities.invokeLater(() ->
+					{
+						if (img != null)
+						{
+							frameSprites.put(spriteId, img);
+							draw.run();
+						}
+					}));
+			}
+		}
+
+		if (itemManager != null)
+		{
+			for (GeScreenshot.Entry entry : entries)
+			{
+				int id = entry.offer.itemId;
+				if (id <= 0 || sprites.containsKey(id))
+				{
+					continue;
+				}
+				net.runelite.client.util.AsyncBufferedImage img =
+					itemManager.getImage(id, entry.offer.totalQuantity, false);
+				sprites.put(id, img);
+				img.onLoaded(() ->
+				{
+					synchronized (redrawPending)
+					{
+						if (redrawPending[0])
+						{
+							return;
+						}
+						redrawPending[0] = true;
+					}
+					SwingUtilities.invokeLater(() ->
+					{
+						synchronized (redrawPending)
+						{
+							redrawPending[0] = false;
+						}
+						draw.run();
+					});
+				});
+			}
+		}
+
+		ToolTipManager.sharedInstance().registerComponent(preview);
+		preview.addMouseMotionListener(new java.awt.event.MouseMotionAdapter()
+		{
+			@Override
+			public void mouseMoved(java.awt.event.MouseEvent me)
+			{
+				BankScreenshot.Rendered r = current[0];
+				if (r == null)
+				{
+					preview.setToolTipText(null);
+					return;
+				}
+				// The label centres the image, so shift the pointer back into
+				// image space before hit-testing a slot.
+				int ox = Math.max(0, (preview.getWidth() - r.image.getWidth()) / 2);
+				preview.setToolTipText(r.tooltipAt(me.getX() - ox, me.getY()));
+			}
+		});
+
+		sideBox.addActionListener(e -> draw.run());
+		geSortBox.addActionListener(e -> draw.run());
+		marketGapBox.addActionListener(e -> draw.run());
+
+		JButton save = new JButton("Save PNG...");
+		save.addActionListener(e ->
+			saveBankImage(current[0] == null ? null : current[0].image, "grand-exchange"));
+		JButton copy = new JButton("Copy to clipboard");
+		copy.addActionListener(e ->
+		{
+			if (current[0] != null)
+			{
+				Toolkit.getDefaultToolkit().getSystemClipboard()
+					.setContents(new ImageTransferable(current[0].image), null);
+			}
+		});
+
+		JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+		controls.add(new JLabel("Show:"));
+		controls.add(sideBox);
+		controls.add(new JLabel("Sort:"));
+		controls.add(geSortBox);
+		controls.add(marketGapBox);
+		controls.add(save);
+		controls.add(copy);
+
+		dialog.add(controls, BorderLayout.NORTH);
+		dialog.add(new JScrollPane(preview), BorderLayout.CENTER);
+		draw.run();
+		dialog.setLocationRelativeTo(this);
+		dialog.setVisible(true);
+	}
+
 	private void screenshotAllItems()
 	{
 		List<ItemAggregator.ItemTotal> totals = ItemAggregator.aggregate(visibleAccounts);
@@ -444,16 +608,7 @@ class WealthViewerFrame extends JFrame
 				// The label centres the image horizontally, so the pointer has to
 				// be shifted back into image space before it can hit a slot.
 				int ox = Math.max(0, (preview.getWidth() - r.image.getWidth()) / 2);
-				BankItem hit = r.itemAt(me.getX() - ox, me.getY());
-				if (hit == null)
-				{
-					preview.setToolTipText(null);
-					return;
-				}
-				// The drawn stack number is truncated the way the game truncates
-				// it, so the exact figure is only available here.
-				preview.setToolTipText(hit.name + "  x" + Format.exact(hit.quantity)
-					+ "  (" + Format.gp(hit.totalValue()) + ")");
+				preview.setToolTipText(r.tooltipAt(me.getX() - ox, me.getY()));
 			}
 		});
 
@@ -1035,7 +1190,8 @@ class WealthViewerFrame extends JFrame
 		offerTable.setRowHeight(ICON_ROW_HEIGHT);
 		offerTable.setFillsViewportHeight(true);
 
-		setRenderer(offerTable, gpRenderer(), 5, 6, 7);
+		setRenderer(offerTable, gpRenderer(), 5, 7, 8);
+		setRenderer(offerTable, marketGapRenderer(), 6);
 		setRenderer(offerTable, progressRenderer(), 4);
 		setRenderer(offerTable, new ItemCellRenderer(offerIcons,
 			row -> offerModel.itemIdAt(row)), 3);
@@ -1049,8 +1205,14 @@ class WealthViewerFrame extends JFrame
 
 		offerSummaryLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 
+		JButton shotGe = new JButton("Screenshot offers...");
+		shotGe.setToolTipText("Draw every tracked Grand Exchange slot as one image");
+		shotGe.addActionListener(e -> screenshotOffers());
+
 		JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
 		controls.add(showEmptySlots);
+		controls.add(Box.createHorizontalStrut(12));
+		controls.add(shotGe);
 		controls.add(Box.createHorizontalStrut(12));
 		controls.add(offerSummaryLabel);
 
@@ -1698,6 +1860,8 @@ class WealthViewerFrame extends JFrame
 		private final List<Object[]> rows = new ArrayList<>();
 		/** Row index to account hash -> quantity, for the per-item pie. */
 		private final List<Map<Long, Long>> rowSplits = new ArrayList<>();
+		/** Item id per row, so the name cell can carry its sprite. */
+		private final List<Integer> rowIds = new ArrayList<>();
 		private long grandTotal;
 		private int holdingAccounts;
 
@@ -1769,6 +1933,7 @@ class WealthViewerFrame extends JFrame
 
 			rows.clear();
 			rowSplits.clear();
+			rowIds.clear();
 			grandTotal = 0L;
 			holdingAccounts = seen.size();
 
@@ -1786,6 +1951,7 @@ class WealthViewerFrame extends JFrame
 					? new Object[]{name, RandomEventItems.sourceOf(id), held, (int) holders}
 					: new Object[]{name, held, (int) holders});
 				rowSplits.add(splits.getOrDefault(id, java.util.Collections.emptyMap()));
+				rowIds.add(id);
 			}
 			fireTableDataChanged();
 		}
@@ -1817,6 +1983,11 @@ class WealthViewerFrame extends JFrame
 				return Long.class;
 			}
 			return column == held + 1 ? Integer.class : String.class;
+		}
+
+		Integer itemIdAt(int modelRow)
+		{
+			return modelRow >= 0 && modelRow < rowIds.size() ? rowIds.get(modelRow) : null;
 		}
 
 		/** Account hash to quantity for one row, for the pie. */
@@ -1883,7 +2054,9 @@ class WealthViewerFrame extends JFrame
 		JTable skillTable = new JTable(skillTotalsModel);
 		skillTable.setAutoCreateRowSorter(true);
 		skillTable.setRowHeight(22);
-		setRenderer(skillTable, countRenderer(), 1, 2);
+		// Column 4 is the top account's XP and was being left raw, so it read
+		// as 40226501 beside a formatted 225,278,223 in the column before it.
+		setRenderer(skillTable, countRenderer(), 1, 2, 4);
 		// Highest total XP first - that ordering is the whole point of a
 		// cross-account skill leaderboard.
 		skillTable.getRowSorter().toggleSortOrder(2);
@@ -1923,7 +2096,13 @@ class WealthViewerFrame extends JFrame
 
 		JTable table = new JTable(model);
 		table.setAutoCreateRowSorter(true);
-		table.setRowHeight(22);
+		// Tall enough for a sprite, matching the All items table.
+		table.setRowHeight(ICON_ROW_HEIGHT);
+		// Its own icon cache: the cache repaints the component it was built
+		// for as sprites arrive, so the two curiosity tables cannot share one.
+		setRenderer(table, new ItemCellRenderer(new ItemIconCache(itemManager, table),
+			model::itemIdAt), 0);
+		table.getColumnModel().getColumn(0).setPreferredWidth(200);
 		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		table.setToolTipText("Select a row to see which accounts hold it");
 		int held = withSource ? 2 : 1;
@@ -2712,6 +2891,57 @@ class WealthViewerFrame extends JFrame
 	 * borders and does not follow the plugin's theme. A filled rectangle is
 	 * two calls and always matches.
 	 */
+	/**
+	 * How far a listing sits from the market price.
+	 *
+	 * <p>Green when the gap favours the account, red when it does not - and
+	 * which way round that is depends on the side of the book, so the offer
+	 * itself is asked rather than the sign of the number. An item whose market
+	 * price has never been captured shows a dash, because a nil difference and
+	 * an unknown one are not the same claim.
+	 */
+	private DefaultTableCellRenderer marketGapRenderer()
+	{
+		return new DefaultTableCellRenderer()
+		{
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+				boolean selected, boolean focused, int row, int column)
+			{
+				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
+				setHorizontalAlignment(SwingConstants.RIGHT);
+
+				GrandExchangeRecord offer = null;
+				try
+				{
+					offer = offerModel.offerAt(t.convertRowIndexToModel(row));
+				}
+				catch (IndexOutOfBoundsException e)
+				{
+					// Row vanished between sort and paint.
+				}
+
+				if (offer == null || offer.priceVsMarket() == null)
+				{
+					setText("-");
+					setToolTipText(offer == null || !offer.isActive()
+						? null : "Market price for this item has not been captured yet");
+					return this;
+				}
+
+				setText(GeScreenshot.marketGapLabel(offer));
+				setForeground(offer.priceGapFavourable()
+					? config.gainColour() : config.lossColour());
+				setToolTipText(offer.isBuy()
+					? "Buying at " + Format.exact(offer.pricePerItem)
+						+ " against a market price of " + Format.exact(offer.marketPrice)
+					: "Selling at " + Format.exact(offer.pricePerItem)
+						+ " against a market price of " + Format.exact(offer.marketPrice));
+				return this;
+			}
+		};
+	}
+
 	private DefaultTableCellRenderer progressRenderer()
 	{
 		return new DefaultTableCellRenderer()
@@ -2775,12 +3005,16 @@ class WealthViewerFrame extends JFrame
 				{
 					g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
 					g2.fillRect(pad, pad, w, h);
-					// Green only when actually complete, so a nearly-full bar is
-					// still visibly not finished.
-					g2.setColor(fraction >= 1.0 ? config.gainColour() : ColorScheme.BRAND_ORANGE);
+					// Banded by progress - see ProgressColours. Green is reserved
+					// for actually complete, so a nearly-full bar still reads as
+					// unfinished.
+					g2.setColor(config.geProgressBarColours()
+						? ProgressColours.forFraction(fraction)
+						: (fraction >= 1.0 ? config.gainColour() : ColorScheme.BRAND_ORANGE));
 					g2.fillRect(pad, pad, (int) Math.round(w * Math.min(1.0, fraction)), h);
 
-					g2.setColor(getForeground());
+					g2.setColor(config.geProgressBarColours()
+						? ProgressColours.textOn(fraction) : getForeground());
 					java.awt.FontMetrics fm = g2.getFontMetrics();
 					String label = Math.round(fraction * 100) + "%";
 					g2.drawString(label,
@@ -3162,7 +3396,7 @@ class WealthViewerFrame extends JFrame
 	{
 		private static final String[] COLUMNS = {
 			"Account", "Slot", "Type", "Item", "Progress",
-			"Unit price", "Spent", "Committed", "Status"
+			"Unit price", "vs market", "Spent", "Committed", "Status"
 		};
 
 		private List<OfferRow> rows = new ArrayList<>();
@@ -3214,10 +3448,11 @@ class WealthViewerFrame extends JFrame
 				case 1:
 					return Integer.class;
 				case 4:
+				case 6:
 					return Double.class;
 				case 5:
-				case 6:
 				case 7:
+				case 8:
 					return Long.class;
 				default:
 					return String.class;
@@ -3247,10 +3482,19 @@ class WealthViewerFrame extends JFrame
 				case 5:
 					return (long) offer.pricePerItem;
 				case 6:
-					return offer.spent;
+				{
+					// The raw fraction, so the column sorts by how far the listing
+					// sits from market rather than by the formatted string. Null
+					// becomes NaN, which sorts to one end and renders as a dash -
+					// an unpriced item must not read as a nil difference.
+					Double gap = offer.isActive() ? offer.priceVsMarket() : null;
+					return gap == null ? Double.NaN : gap;
+				}
 				case 7:
-					return offer.committedValue();
+					return offer.spent;
 				case 8:
+					return offer.committedValue();
+				case 9:
 					return offer.stateLabel();
 				default:
 					return "";

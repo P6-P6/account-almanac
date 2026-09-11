@@ -55,16 +55,25 @@ final class BankScreenshot
 		};
 	}
 
-	/** One drawn slot and the item that landed in it. */
+	/**
+	 * One drawn slot, the item in it, and what to say when hovered.
+	 *
+	 * <p>The tooltip is supplied by whichever renderer built the slot rather
+	 * than derived from the item here. A bank slot wants the name and stack;
+	 * a Grand Exchange slot wants the account and the offer's progress, which
+	 * the item alone cannot answer.
+	 */
 	static final class Slot
 	{
 		final Rectangle bounds;
 		final BankItem item;
+		final String tooltip;
 
-		Slot(Rectangle bounds, BankItem item)
+		Slot(Rectangle bounds, BankItem item, String tooltip)
 		{
 			this.bounds = bounds;
 			this.item = item;
+			this.tooltip = tooltip;
 		}
 	}
 
@@ -87,17 +96,24 @@ final class BankScreenshot
 			this.slots = slots;
 		}
 
-		/** The item drawn at a point, or null if the point is not on one. */
-		BankItem itemAt(int x, int y)
+		/** The slot drawn at a point, or null if the point is not on one. */
+		Slot slotAt(int x, int y)
 		{
 			for (Slot slot : slots)
 			{
 				if (slot.bounds.contains(x, y))
 				{
-					return slot.item;
+					return slot;
 				}
 			}
 			return null;
+		}
+
+		/** What to show when hovering a point, or null off any slot. */
+		String tooltipAt(int x, int y)
+		{
+			Slot slot = slotAt(x, y);
+			return slot == null ? null : slot.tooltip;
 		}
 	}
 
@@ -246,12 +262,12 @@ final class BankScreenshot
 	private static final int TAB_H = 36;
 	private static final int FOOT_H = 20;
 
-	private static final Color STONE = new Color(0x3E, 0x35, 0x29);
-	private static final Color WELL = new Color(0x33, 0x2C, 0x22);
-	private static final Color BEVEL_HI = new Color(0x6B, 0x60, 0x4E);
-	private static final Color BEVEL_LO = new Color(0x1E, 0x1A, 0x13);
-	private static final Color ORANGE = new Color(0xFF, 0x98, 0x1F);
-	private static final Color PARCHMENT = new Color(0xDC, 0xCF, 0xA8);
+	static final Color STONE = new Color(0x3E, 0x35, 0x29);
+	static final Color WELL = new Color(0x33, 0x2C, 0x22);
+	static final Color BEVEL_HI = new Color(0x6B, 0x60, 0x4E);
+	static final Color BEVEL_LO = new Color(0x1E, 0x1A, 0x13);
+	static final Color ORANGE = new Color(0xFF, 0x98, 0x1F);
+	static final Color PARCHMENT = new Color(0xDC, 0xCF, 0xA8);
 
 	private static final String DOT = "  -  ";
 
@@ -398,7 +414,11 @@ final class BankScreenshot
 				BankItem item = ordered.get(i);
 				int sx = gx + (i % cols) * SLOT_W;
 				int sy = gy + (i / cols) * SLOT_H;
-				slots.add(new Slot(new Rectangle(sx, sy, SLOT_W, SLOT_H), item));
+				// The drawn stack number is truncated the way the game truncates
+				// it, so the exact figure is only available on hover.
+				slots.add(new Slot(new Rectangle(sx, sy, SLOT_W, SLOT_H), item,
+					item.name + "  x" + Format.exact(item.quantity)
+						+ "  (" + Format.gp(item.totalValue()) + ")"));
 
 				Image sprite = icons == null ? null : icons.apply(item.id);
 				if (sprite != null)
@@ -447,7 +467,7 @@ final class BankScreenshot
 	 * what the interface itself does - the cache carries one edge per axis,
 	 * not one per side.
 	 */
-	private static void steelFrame(Graphics2D g, int width, int height,
+	static void steelFrame(Graphics2D g, int width, int height,
 		IntFunction<BufferedImage> frame)
 	{
 		BufferedImage tl = sprite(frame, SPRITE_CORNER_TL);
@@ -554,7 +574,7 @@ final class BankScreenshot
 	 * pass rather than as a million one-pixel fills, which on a large bank is
 	 * the difference between instant and visibly slow.
 	 */
-	private static void stone(Graphics2D g, int width, int height)
+	static void stone(Graphics2D g, int width, int height)
 	{
 		BufferedImage tile = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		for (int y = 0; y < height; y++)
@@ -573,7 +593,7 @@ final class BankScreenshot
 	}
 
 	/** A RuneScape interface bevel: lit from the top-left, or sunken. */
-	private static void bevel(Graphics2D g, int x, int y, int w, int h, boolean raised)
+	static void bevel(Graphics2D g, int x, int y, int w, int h, boolean raised)
 	{
 		g.setColor(raised ? BEVEL_HI : BEVEL_LO);
 		g.drawLine(x, y, x + w - 1, y);
@@ -584,7 +604,7 @@ final class BankScreenshot
 	}
 
 	/** Game text is drawn with a hard black shadow one pixel down and right. */
-	private static void shadowed(Graphics2D g, String text, int x, int y, Color colour)
+	static void shadowed(Graphics2D g, String text, int x, int y, Color colour)
 	{
 		g.setColor(Color.BLACK);
 		g.drawString(text, x + 1, y + 1);
