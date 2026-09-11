@@ -2,7 +2,13 @@ package com.accountalmanac;
 
 import java.awt.Component;
 import java.awt.Container;
+import javax.swing.AbstractButton;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JSplitPane;
+import javax.swing.JTextField;
+import javax.swing.text.JTextComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
@@ -89,6 +95,44 @@ final class ThemeApplier
 				label.setForeground(theme.text());
 			}
 		}
+		else if (component instanceof JComboBox)
+		{
+			// Dropdowns kept RuneLite's dark default, which on a light theme is
+			// a dark control on a pale panel - the reason the light themes
+			// looked broken. The popup list takes the same colours, since it is
+			// a separate component that inherits nothing from the box.
+			JComboBox<?> box = (JComboBox<?>) component;
+			box.setBackground(theme.altBackground());
+			box.setForeground(theme.text());
+			paintComboPopup(box, theme);
+		}
+		else if (component instanceof JTextComponent)
+		{
+			// Covers the search and filter fields as well as text areas.
+			JTextComponent text = (JTextComponent) component;
+			text.setBackground(theme.altBackground());
+			text.setForeground(theme.text());
+			text.setCaretColor(theme.text());
+			if (text instanceof JTextField)
+			{
+				text.setSelectionColor(theme.selection());
+				text.setSelectedTextColor(theme.text());
+			}
+		}
+		else if (component instanceof AbstractButton)
+		{
+			// Buttons, checkboxes and radio buttons. A checkbox sits directly on
+			// the panel, so it takes the panel colour rather than the secondary
+			// surface a raised button wants.
+			AbstractButton button = (AbstractButton) component;
+			boolean flat = !(button instanceof javax.swing.JButton);
+			button.setBackground(flat ? theme.background() : theme.altBackground());
+			button.setForeground(theme.text());
+		}
+		else if (component instanceof JSplitPane)
+		{
+			component.setBackground(theme.background());
+		}
 		else if (component instanceof JScrollPane)
 		{
 			JScrollPane scroll = (JScrollPane) component;
@@ -110,6 +154,47 @@ final class ThemeApplier
 			for (Component child : ((Container) component).getComponents())
 			{
 				paint(child, theme);
+			}
+		}
+	}
+
+	/**
+	 * Colours a combo box's drop-down list.
+	 *
+	 * <p>The popup is a separate component that is not in the tree being
+	 * walked, so it never gets reached by recursion and has to be asked for
+	 * directly. Without this the list stays dark on the light themes even once
+	 * the box itself is correct.
+	 */
+	private static void paintComboPopup(JComboBox<?> box, ViewerTheme theme)
+	{
+		if (box.getUI() == null)
+		{
+			return;
+		}
+		javax.accessibility.Accessible child = box.getUI().getAccessibleChild(box, 0);
+		if (child instanceof Component)
+		{
+			findList((Component) child, theme);
+		}
+	}
+
+	private static void findList(Component component, ViewerTheme theme)
+	{
+		if (component instanceof JList)
+		{
+			JList<?> list = (JList<?>) component;
+			list.setBackground(theme.altBackground());
+			list.setForeground(theme.text());
+			list.setSelectionBackground(theme.selection());
+			list.setSelectionForeground(theme.text());
+			return;
+		}
+		if (component instanceof Container)
+		{
+			for (Component child : ((Container) component).getComponents())
+			{
+				findList(child, theme);
 			}
 		}
 	}

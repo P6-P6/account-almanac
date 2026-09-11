@@ -138,7 +138,7 @@ final class GeScreenshot
 
 	// A slot box, sized so the item, its name and a progress bar fit without
 	// the name having to be truncated for anything but the longest items.
-	private static final int BOX_W = 150;
+	private static final int BOX_W = 172;
 	private static final int BOX_H = 92;
 	private static final int GAP = 6;
 	private static final int COLS = 4;
@@ -365,25 +365,44 @@ final class GeScreenshot
 		}
 		BankScreenshot.bevel(g, barX, barY, barW, 7, false);
 
-		BankScreenshot.shadowed(g,
-			Format.exact(offer.quantitySold) + " / " + Format.exact(offer.totalQuantity),
-			x + 5, y + 66, BankScreenshot.PARCHMENT);
+		// Three figures on one line was the bug: unit price, the market badge
+		// and the committed value all drew at y+80 and ran into each other on
+		// anything wide. Committed moves up to share the quantity line, and
+		// each pair is laid out left-and-right with an overlap guard.
+		String qty = Format.exact(offer.quantitySold) + " / " + Format.exact(offer.totalQuantity);
+		String committed = Format.gp(offer.committedValue());
+		pair(g, x, y + 66, qty, BankScreenshot.PARCHMENT, committed, accent);
 
 		String unit = Format.exact(offer.pricePerItem) + " gp ea";
-		BankScreenshot.shadowed(g, unit, x + 5, y + 80, WHITE);
-
 		Double gap = offer.priceVsMarket();
-		if (showMarketGap && gap != null)
-		{
-			String badge = marketGapLabel(offer);
-			int ux = g.getFontMetrics().stringWidth(unit);
-			BankScreenshot.shadowed(g, badge, x + 9 + ux, y + 80,
-				offer.priceGapFavourable() ? GOOD : BAD);
-		}
+		String badge = showMarketGap && gap != null ? marketGapLabel(offer) : "";
+		pair(g, x, y + 80, unit, WHITE, badge,
+			offer.priceGapFavourable() ? GOOD : BAD);
+	}
 
-		String committed = Format.gp(offer.committedValue());
-		int cw = g.getFontMetrics().stringWidth(committed);
-		BankScreenshot.shadowed(g, committed, x + BOX_W - 5 - cw, y + 80, accent);
+	/**
+	 * Draws one line with text at each end.
+	 *
+	 * <p>When the two would collide the right-hand figure is dropped rather
+	 * than overlapped: a number sitting on top of another number is worse than
+	 * a number that is not there, and the hover text still carries it.
+	 */
+	private static void pair(Graphics2D g, int x, int y,
+		String left, Color leftColour, String right, Color rightColour)
+	{
+		BankScreenshot.shadowed(g, left, x + 5, y, leftColour);
+		if (right == null || right.isEmpty())
+		{
+			return;
+		}
+		int lw = g.getFontMetrics().stringWidth(left);
+		int rw = g.getFontMetrics().stringWidth(right);
+		int rx = x + BOX_W - 5 - rw;
+		if (rx < x + 5 + lw + 6)
+		{
+			return;
+		}
+		BankScreenshot.shadowed(g, right, rx, y, rightColour);
 	}
 
 	/**

@@ -26,12 +26,14 @@ public enum ViewerTheme
 		ColorScheme.MEDIUM_GRAY_COLOR,
 		ColorScheme.BRAND_ORANGE),
 
+	/** A warm off-white. Paper, not a lightbulb - a near-white background
+	 *  glares under a dark table and washes out anything drawn pale. */
 	LIGHT("Light",
-		new Color(244, 242, 238),
-		new Color(230, 227, 220),
-		new Color(34, 32, 29),
-		new Color(106, 101, 93),
-		new Color(154, 107, 22)),
+		new Color(228, 225, 219),
+		new Color(212, 208, 200),
+		new Color(32, 30, 27),
+		new Color(92, 87, 79),
+		new Color(140, 94, 16)),
 
 	MIDNIGHT("Midnight blue",
 		new Color(14, 20, 32),
@@ -65,15 +67,19 @@ public enum ViewerTheme
 		new Color(106, 194, 112)),
 
 	/**
-	 * White and gold, for Saradomin. Deliberately the light one of the three -
-	 * a third dark blue would be hard to tell from Midnight at a glance.
+	 * Saradomin's cape: a deep royal blue field with a silver star and trim.
+	 * Blue-dominant, not white-dominant - an earlier version had it the wrong
+	 * way round, and the one before that used gold, which is Armadyl's.
+	 *
+	 * <p>Headings take the star's pure white so they separate from body text,
+	 * which sits a shade below it in blue-white.
 	 */
-	SARADOMIN("Saradomin white",
-		new Color(214, 221, 233),
-		new Color(196, 205, 221),
-		new Color(26, 32, 44),
-		new Color(94, 106, 128),
-		new Color(176, 137, 26));
+	SARADOMIN("Saradomin blue",
+		new Color(26, 44, 122),
+		new Color(19, 33, 94),
+		new Color(215, 222, 236),
+		new Color(141, 158, 198),
+		new Color(255, 255, 255));
 
 	private final String label;
 	private final Color background;
@@ -134,6 +140,12 @@ public enum ViewerTheme
 	{
 		boolean dark = luminance(background) < 0.5;
 		return dark ? lighten(background, 0.18f) : darken(background, 0.10f);
+	}
+
+	/** Whether this theme is dark enough for the game's own stack colours. */
+	boolean isDark()
+	{
+		return luminance(background) < 0.5;
 	}
 
 	/** Grid lines: just off the background, in whichever direction has room. */

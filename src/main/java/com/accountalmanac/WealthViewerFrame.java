@@ -28,6 +28,8 @@ import java.awt.Toolkit;
 import java.util.HashMap;
 import javax.swing.JButton;
 import javax.swing.JDialog;
+import java.io.File;
+import java.io.IOException;
 import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
@@ -952,6 +954,239 @@ class WealthViewerFrame extends JFrame
 		}
 	}
 
+	/**
+	 * One export control rather than a button per tab.
+	 *
+	 * <p>Six exports on six tabs would be six buttons to find; a single menu
+	 * keeps them together and makes it obvious that the same set is always
+	 * available. Every export honours the group filter and the name privacy
+	 * setting, so a CSV says exactly what the window says.
+	 */
+	private JButton buildExportButton()
+	{
+		JButton button = new JButton("Export CSV");
+		button.setToolTipText("Write the current view out as a spreadsheet");
+
+		JPopupMenu menu = new JPopupMenu();
+		addExport(menu, "Items across all accounts...", "items",
+			f -> CsvExport.items(f, visibleAccounts));
+		addExport(menu, "Accounts summary...", "accounts",
+			f -> CsvExport.accounts(f, visibleAccounts, config.namePrivacy()));
+		addExport(menu, "Every bank, one row per stack...", "banks",
+			f -> CsvExport.banks(f, visibleAccounts, config.namePrivacy()));
+		addExport(menu, "Grand Exchange offers...", "ge-offers",
+			f -> CsvExport.offers(f, visibleAccounts, config.namePrivacy()));
+		addExport(menu, "Wealth and XP history...", "history",
+			f -> CsvExport.history(f, visibleAccounts, historyStore, config.namePrivacy()));
+		addExport(menu, "Skills, one row per skill...", "skills",
+			f -> CsvExport.skills(f, visibleAccounts, config.namePrivacy()));
+
+		menu.addSeparator();
+		JMenuItem html = new JMenuItem("Everything as one HTML page...");
+		html.setToolTipText("One self-contained file with every table, "
+			+ "sortable and filterable in a browser");
+		html.addActionListener(e -> exportHtml());
+		menu.add(html);
+
+		JMenuItem everything = new JMenuItem("Everything as six CSV files...");
+		everything.setToolTipText("Write every CSV export into one dated folder");
+		everything.addActionListener(e -> exportEverything());
+		menu.add(everything);
+
+		button.addActionListener(e -> menu.show(button, 0, button.getHeight()));
+		return button;
+	}
+
+	/**
+	 * Writes the whole roster as a single self-contained HTML page.
+	 *
+	 * <p>One file rather than the folder of CSVs: it opens in a browser with
+	 * nothing to unpack and can be handed to somebody who has neither the
+	 * plugin nor a spreadsheet. The CSVs stay the right answer for computing
+	 * on the data; this is the right answer for reading it.
+	 */
+	private void exportHtml()
+	{
+		if (visibleAccounts.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this, "No accounts are in view to export.",
+				"Export", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		JFileChooser chooser = new JFileChooser();
+		String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
+			.format(new java.util.Date());
+		chooser.setSelectedFile(new File("almanac-report-" + stamp + ".html"));
+		if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION)
+		{
+			return;
+		}
+		File target = chooser.getSelectedFile();
+		if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".html"))
+		{
+			target = new File(target.getParentFile(), target.getName() + ".html");
+		}
+
+		try
+		{
+			int rows = HtmlReport.write(target, visibleAccounts, historyStore,
+				config.namePrivacy());
+			long kb = Math.max(1L, target.length() / 1024L);
+			int open = JOptionPane.showConfirmDialog(this,
+				Format.exact(rows) + " rows written to:" + System.lineSeparator()
+					+ target + System.lineSeparator()
+					+ "(" + Format.exact(kb) + " KB)" + System.lineSeparator()
+					+ System.lineSeparator() + "Open it now?",
+				"Export", JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+			if (open == JOptionPane.YES_OPTION && java.awt.Desktop.isDesktopSupported())
+			{
+				java.awt.Desktop.getDesktop().browse(target.toURI());
+			}
+		}
+		catch (IOException | UnsupportedOperationException ex)
+		{
+			JOptionPane.showMessageDialog(this, "Could not write the file: " + ex.getMessage(),
+				"Export", JOptionPane.ERROR_MESSAGE);
+		}
+	}
+
+	/**
+	 * Writes every export into one dated folder.
+	 *
+	 * <p>A folder of six files rather than one combined file, because the six
+	 * have six different shapes - an item row and a snapshot row share no
+	 * columns - and forcing them into one sheet would mean either a mostly
+	 * empty grid or a key-value soup that nothing can pivot. Six tables is
+	 * what the data actually is.
+	 */
+	private void exportEverything()
+	{
+		if (visibleAccounts.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this, "No accounts are in view to export.",
+				"Export CSV", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		JFileChooser chooser = new JFileChooser();
+		chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+		chooser.setDialogTitle("Choose a folder to write the export into");
+		if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION)
+		{
+			return;
+		}
+
+		String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
+			.format(new java.util.Date());
+		File dir = new File(chooser.getSelectedFile(), "almanac-export-" + stamp);
+		if (!dir.mkdirs() && !dir.isDirectory())
+		{
+			JOptionPane.showMessageDialog(this, "Could not create:" + System.lineSeparator() + dir,
+				"Export CSV", JOptionPane.ERROR_MESSAGE);
+			return;
+		}
+
+		NamePrivacy privacy = config.namePrivacy();
+		StringBuilder report = new StringBuilder();
+		int total = 0;
+		try
+		{
+			total += line(report, "items.csv",
+				CsvExport.items(new File(dir, "items.csv"), visibleAccounts));
+			total += line(report, "accounts.csv",
+				CsvExport.accounts(new File(dir, "accounts.csv"), visibleAccounts, privacy));
+			total += line(report, "banks.csv",
+				CsvExport.banks(new File(dir, "banks.csv"), visibleAccounts, privacy));
+			total += line(report, "ge-offers.csv",
+				CsvExport.offers(new File(dir, "ge-offers.csv"), visibleAccounts, privacy));
+			total += line(report, "history.csv",
+				CsvExport.history(new File(dir, "history.csv"), visibleAccounts, historyStore, privacy));
+			total += line(report, "skills.csv",
+				CsvExport.skills(new File(dir, "skills.csv"), visibleAccounts, privacy));
+		}
+		catch (IOException ex)
+		{
+			// Whatever was written before the failure stays: a partial export is
+			// more use than none, and the message says how far it got.
+			JOptionPane.showMessageDialog(this,
+				"Stopped after an error: " + ex.getMessage() + System.lineSeparator()
+					+ System.lineSeparator() + report,
+				"Export CSV", JOptionPane.ERROR_MESSAGE);
+			return;
+		}
+
+		JOptionPane.showMessageDialog(this,
+			Format.exact(total) + " rows across 6 files written to:" + System.lineSeparator()
+				+ dir + System.lineSeparator() + System.lineSeparator() + report,
+			"Export CSV", JOptionPane.INFORMATION_MESSAGE);
+	}
+
+	private static int line(StringBuilder report, String name, int rows)
+	{
+		report.append(name).append("  -  ").append(Format.exact(rows))
+			.append(rows == 1 ? " row" : " rows").append(System.lineSeparator());
+		return rows;
+	}
+
+	/** Writes a CSV, or reports why it could not. */
+	private interface CsvWriter
+	{
+		int write(File file) throws IOException;
+	}
+
+	private void addExport(JPopupMenu menu, String label, String stem, CsvWriter writer)
+	{
+		JMenuItem item = new JMenuItem(label);
+		item.addActionListener(e ->
+		{
+			if (visibleAccounts.isEmpty())
+			{
+				JOptionPane.showMessageDialog(this, "No accounts are in view to export.",
+					"Export CSV", JOptionPane.INFORMATION_MESSAGE);
+				return;
+			}
+			File target = chooseCsvTarget(stem);
+			if (target == null)
+			{
+				return;
+			}
+			try
+			{
+				int rows = writer.write(target);
+				JOptionPane.showMessageDialog(this,
+					Format.exact(rows) + (rows == 1 ? " row written to:" : " rows written to:")
+						+ System.lineSeparator() + target,
+					"Export CSV", JOptionPane.INFORMATION_MESSAGE);
+			}
+			catch (IOException ex)
+			{
+				JOptionPane.showMessageDialog(this, "Could not write the file: " + ex.getMessage(),
+					"Export CSV", JOptionPane.ERROR_MESSAGE);
+			}
+		});
+		menu.add(item);
+	}
+
+	/** Asks where to save, defaulting to a dated name, and ensures a .csv suffix. */
+	private File chooseCsvTarget(String stem)
+	{
+		JFileChooser chooser = new JFileChooser();
+		String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
+			.format(new java.util.Date());
+		chooser.setSelectedFile(new File("almanac-" + stem + "-" + stamp + ".csv"));
+		if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION)
+		{
+			return null;
+		}
+		File target = chooser.getSelectedFile();
+		if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".csv"))
+		{
+			target = new File(target.getParentFile(), target.getName() + ".csv");
+		}
+		return target;
+	}
+
 	private JPanel buildToolbar()
 	{
 		JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
@@ -979,6 +1214,7 @@ class WealthViewerFrame extends JFrame
 		bar.add(summaryLabel);
 		bar.add(Box.createHorizontalStrut(16));
 		bar.add(refreshButton);
+		bar.add(buildExportButton());
 		bar.add(Box.createHorizontalStrut(16));
 		bar.add(new JLabel("Group:"));
 		bar.add(groupBox);
@@ -3038,7 +3274,7 @@ class WealthViewerFrame extends JFrame
 	 * <p>The text still follows the user's chosen number format; only the
 	 * colour comes from the game convention.
 	 */
-	private static DefaultTableCellRenderer gpRenderer()
+	private DefaultTableCellRenderer gpRenderer()
 	{
 		return gpRenderer(null);
 	}
@@ -3047,7 +3283,7 @@ class WealthViewerFrame extends JFrame
 	 * @param foreground fixed colour, or {@code null} to colour by the game's
 	 *                   stack scale
 	 */
-	private static DefaultTableCellRenderer gpRenderer(Color foreground)
+	private DefaultTableCellRenderer gpRenderer(Color foreground)
 	{
 		return new DefaultTableCellRenderer()
 		{
@@ -3063,7 +3299,8 @@ class WealthViewerFrame extends JFrame
 					setToolTipText(Format.exact(amount) + " gp");
 					if (!selected)
 					{
-						setForeground(foreground != null ? foreground : StackFormat.colour(amount));
+						setForeground(foreground != null ? foreground
+							: StackFormat.colour(amount, config.viewerTheme().isDark()));
 					}
 				}
 				setHorizontalAlignment(SwingConstants.RIGHT);
@@ -3076,7 +3313,7 @@ class WealthViewerFrame extends JFrame
 	 * Grouped counts - 10,000 rather than 10000 - coloured on the game's stack
 	 * scale so levels and XP read consistently with the item and coin columns.
 	 */
-	private static DefaultTableCellRenderer countRenderer()
+	private DefaultTableCellRenderer countRenderer()
 	{
 		return new DefaultTableCellRenderer()
 		{
@@ -3091,7 +3328,7 @@ class WealthViewerFrame extends JFrame
 					setText(Format.exact(amount));
 					if (!selected)
 					{
-						setForeground(StackFormat.colour(amount));
+						setForeground(StackFormat.colour(amount, config.viewerTheme().isDark()));
 					}
 				}
 				setHorizontalAlignment(SwingConstants.RIGHT);
@@ -3314,7 +3551,7 @@ class WealthViewerFrame extends JFrame
 	 * is always on the tooltip, since everything at or above 100,000 is
 	 * truncated and therefore lossy.
 	 */
-	private static DefaultTableCellRenderer quantityRenderer()
+	private DefaultTableCellRenderer quantityRenderer()
 	{
 		return new DefaultTableCellRenderer()
 		{
@@ -3330,7 +3567,7 @@ class WealthViewerFrame extends JFrame
 					setToolTipText(Format.exact(amount));
 					if (!selected)
 					{
-						setForeground(StackFormat.colour(amount));
+						setForeground(StackFormat.colour(amount, config.viewerTheme().isDark()));
 					}
 				}
 				setHorizontalAlignment(SwingConstants.RIGHT);

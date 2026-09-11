@@ -30,6 +30,14 @@ final class StackFormat
 	private static final Color WHITE = new Color(255, 255, 255);
 	private static final Color GREEN = new Color(0, 255, 0);
 
+	// The game only ever draws these on a dark interface, so the three are
+	// chosen for contrast against near-black. On a light theme yellow and
+	// white are invisible - the same hues are used here, darkened until they
+	// read against a pale background, so the tiers stay recognisable.
+	private static final Color YELLOW_ON_LIGHT = new Color(122, 94, 0);
+	private static final Color WHITE_ON_LIGHT = new Color(46, 46, 46);
+	private static final Color GREEN_ON_LIGHT = new Color(11, 107, 11);
+
 	private StackFormat()
 	{
 	}
@@ -53,14 +61,23 @@ final class StackFormat
 
 	static Color colour(long amount)
 	{
+		return colour(amount, true);
+	}
+
+	/**
+	 * @param onDark whether the colour will be drawn on a dark surface; false
+	 *               swaps in the darkened variants so the text stays legible
+	 */
+	static Color colour(long amount, boolean onDark)
+	{
 		if (amount < WHITE_FROM)
 		{
-			return YELLOW;
+			return onDark ? YELLOW : YELLOW_ON_LIGHT;
 		}
 		if (amount < GREEN_FROM)
 		{
-			return WHITE;
+			return onDark ? WHITE : WHITE_ON_LIGHT;
 		}
-		return GREEN;
+		return onDark ? GREEN : GREEN_ON_LIGHT;
 	}
 }
