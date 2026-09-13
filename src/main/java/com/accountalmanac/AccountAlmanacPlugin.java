@@ -29,7 +29,6 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.gameval.VarPlayerID;
-import net.runelite.api.vars.AccountType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -442,16 +441,29 @@ public class AccountAlmanacPlugin extends Plugin
 	}
 
 	/**
-	 * Ironman variant, if any. {@code getAccountType()} is deprecated with
-	 * no listed replacement - it is used anyway because it is still the
-	 * only API that exposes this, same situation as the {@code getUsername}
-	 * fallback above.
+	 * Ironman variant, read from the game's own account-type varbit.
+	 *
+	 * <p>Replaces the deprecated {@code Client.getAccountType()}, which read
+	 * this same varbit. The names returned are the ones that method's enum
+	 * used, so values stored by earlier versions keep matching.
 	 */
-	@SuppressWarnings("deprecation")
 	private String readAccountType()
 	{
-		AccountType type = client.getAccountType();
-		return type == null ? "" : type.name();
+		switch (client.getVarbitValue(VarbitID.IRONMAN))
+		{
+			case 1:
+				return "IRONMAN";
+			case 2:
+				return "ULTIMATE_IRONMAN";
+			case 3:
+				return "HARDCORE_IRONMAN";
+			case 4:
+				return "GROUP_IRONMAN";
+			case 5:
+				return "HARDCORE_GROUP_IRONMAN";
+			default:
+				return "NORMAL";
+		}
 	}
 
 	@Subscribe
