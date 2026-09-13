@@ -54,6 +54,7 @@ import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * The "AIO bank viewer" window: every tracked account side by side, every
@@ -1039,12 +1040,14 @@ class WealthViewerFrame extends JFrame
 					+ "(" + Format.exact(kb) + " KB)" + System.lineSeparator()
 					+ System.lineSeparator() + "Open it now?",
 				"Export", JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
-			if (open == JOptionPane.YES_OPTION && java.awt.Desktop.isDesktopSupported())
+			if (open == JOptionPane.YES_OPTION)
 			{
-				java.awt.Desktop.getDesktop().browse(target.toURI());
+				// open, not browse: browse only accepts http(s) links, and this
+				// is a file on disk - open hands it to the default application.
+				LinkBrowser.open(target.getAbsolutePath());
 			}
 		}
-		catch (IOException | UnsupportedOperationException ex)
+		catch (IOException ex)
 		{
 			JOptionPane.showMessageDialog(this, "Could not write the file: " + ex.getMessage(),
 				"Export", JOptionPane.ERROR_MESSAGE);
