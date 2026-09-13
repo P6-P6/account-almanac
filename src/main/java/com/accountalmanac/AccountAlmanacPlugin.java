@@ -142,6 +142,15 @@ public class AccountAlmanacPlugin extends Plugin
 	 */
 	private boolean repricedThisSession;
 
+	/**
+	 * Which account the periodic flush last refreshed a history point for, its
+	 * wealth at the time, and when. See {@link #refreshSnapshotIfDue}. Touched
+	 * only by the periodic flush, which always runs on the one executor thread.
+	 */
+	private Long snapshotAccountHash;
+	private long snapshotWealth;
+	private long snapshotRefreshedAt;
+
 	@Override
 	protected void startUp() throws Exception
 	{
@@ -264,8 +273,9 @@ public class AccountAlmanacPlugin extends Plugin
 
 	private void flushOnce()
 	{
-		boolean changed = recordSnapshotForCurrentAccount();
-		changed |= store.flushIfDirty();
+		long now = System.currentTimeMillis();
+		boolean changed = refreshSnapshotIfDue(now);
+		changed |= store.flushIfDue(now);
 		changed |= historyStore.flushIfDirty();
 		changed |= geEventStore.flushIfDirty();
 
@@ -273,6 +283,38 @@ public class AccountAlmanacPlugin extends Plugin
 		{
 			refreshPanel();
 		}
+	}
+
+	/**
+	 * Refreshes the logged-in account's history point from the periodic flush.
+	 *
+	 * <p>A newly logged-in account, or a change in its bank or Grand Exchange
+	 * value, goes in straight away. XP movement alone waits for
+	 * {@link AccountStore#SKILL_SAVE_INTERVAL_MILLIS}, the same cadence skill
+	 * changes reach the account file at: XP moves on every drop, and refreshing
+	 * each time rewrote the history file every few seconds while training.
+	 * Logout and shutdown still record a point immediately.
+	 */
+	private boolean refreshSnapshotIfDue(long now)
+	{
+		Long hash = currentAccountHash;
+		AccountRecord record = hash == null ? null : store.findAccount(hash);
+		if (record == null)
+		{
+			return false;
+		}
+
+		long wealth = record.bankValue + record.geValue();
+		if (hash.equals(snapshotAccountHash) && wealth == snapshotWealth
+			&& now - snapshotRefreshedAt < AccountStore.SKILL_SAVE_INTERVAL_MILLIS)
+		{
+			return false;
+		}
+
+		snapshotAccountHash = hash;
+		snapshotWealth = wealth;
+		snapshotRefreshedAt = now;
+		return historyStore.recordSnapshot(record, now, config.snapshotIntervalHours());
 	}
 
 	/**
@@ -369,7 +411,20 @@ public class AccountAlmanacPlugin extends Plugin
 		else if (state == GameState.LOGIN_SCREEN)
 		{
 			// Capture where the account finished before letting go of it.
+			boolean wasLoggedIn = currentAccountHash != null;
 			recordSnapshotForCurrentAccount();
+			if (wasLoggedIn)
+			{
+				// Saved now rather than by the periodic flush: skill changes
+				// otherwise wait up to AccountStore.SKILL_SAVE_INTERVAL_MILLIS,
+				// and a client closed from the login screen should not depend on
+				// that timer. Queued, because this runs on the client thread.
+				executor.execute(() ->
+				{
+					store.flushIfDirty();
+					historyStore.flushIfDirty();
+				});
+			}
 			currentAccountHash = null;
 			needsNameUpdate = false;
 			geSyncUntil = 0L;

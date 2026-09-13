@@ -39,12 +39,25 @@ class AccountStore
 {
 	private static final String FILE_NAME = "accounts.json";
 
+	/**
+	 * How long skill-only changes may wait before being saved. See
+	 * {@link #markSkillsDirty()}; also the cadence the plugin refreshes the
+	 * logged-in account's history point at while only XP is moving.
+	 */
+	static final long SKILL_SAVE_INTERVAL_MILLIS = java.util.concurrent.TimeUnit.MINUTES.toMillis(10);
+
 	private final Gson gson;
 	private final ScheduledExecutorService executor;
 	private final File dataFile;
 
 	private TrackerData data = new TrackerData();
 	private volatile boolean dirty;
+
+	/** Skill changes not yet saved. Guarded by this. */
+	private boolean skillsDirty;
+
+	/** When the file was last written or read. Guarded by this. */
+	private long lastWrittenAt;
 
 	@Inject
 	AccountStore(Gson gson, ScheduledExecutorService executor)
@@ -61,6 +74,9 @@ class AccountStore
 			synchronized (this)
 			{
 				data = readFromDisk();
+				// Memory now matches the file, so the skill-save interval
+				// counts from here rather than from the epoch.
+				lastWrittenAt = System.currentTimeMillis();
 			}
 			if (onLoaded != null)
 			{
@@ -105,9 +121,9 @@ class AccountStore
 	}
 
 	/**
-	 * Marks in-memory data as needing a save without writing immediately.
-	 * Used for high-frequency updates - stat changes fire on every XP drop -
-	 * so a periodic {@link #flushIfDirty()} picks them up instead.
+	 * Marks in-memory data as needing a save without writing immediately, for
+	 * changes that arrive in bursts - Grand Exchange slots after login, prices
+	 * after a reprice - so the periodic {@link #flushIfDue} picks them up.
 	 */
 	private void markDirty()
 	{
@@ -115,14 +131,50 @@ class AccountStore
 	}
 
 	/**
+	 * Marks skill data as changed. Kept apart from {@link #markDirty()}
+	 * because it fires on every XP drop: this file holds every account's bank,
+	 * so saving whenever a skill moved rewrote megabytes every few seconds
+	 * while training. Skill changes are saved at most every
+	 * {@link #SKILL_SAVE_INTERVAL_MILLIS}, or sooner whenever anything else is
+	 * written. Nothing is lost for long, and the game re-reports every skill at
+	 * login regardless.
+	 */
+	private void markSkillsDirty()
+	{
+		skillsDirty = true;
+	}
+
+	/**
+	 * Writes everything outstanding, skill changes included - for shutdown,
+	 * logout, backups and immediate saves.
+	 *
 	 * @return {@code true} if there was unsaved data and it was flushed.
 	 */
 	boolean flushIfDirty()
 	{
+		return flush(true, System.currentTimeMillis());
+	}
+
+	/**
+	 * The periodic save: other changes are written straight away, skill-only
+	 * changes once {@link #SKILL_SAVE_INTERVAL_MILLIS} has passed since the
+	 * file was last written.
+	 *
+	 * @return {@code true} if data was flushed.
+	 */
+	boolean flushIfDue(long now)
+	{
+		return flush(false, now);
+	}
+
+	private boolean flush(boolean includeSkills, long now)
+	{
 		String json;
 		synchronized (this)
 		{
-			if (!dirty)
+			boolean skillsDue = skillsDirty
+				&& (includeSkills || now - lastWrittenAt >= SKILL_SAVE_INTERVAL_MILLIS);
+			if (!dirty && !skillsDue)
 			{
 				return false;
 			}
@@ -133,10 +185,15 @@ class AccountStore
 			// would block the game on IO.
 			json = gson.toJson(data);
 			dirty = false;
+			skillsDirty = false;
 		}
 
 		if (JsonFile.writeText(dataFile, json))
 		{
+			synchronized (this)
+			{
+				lastWrittenAt = now;
+			}
 			return true;
 		}
 
@@ -194,7 +251,7 @@ class AccountStore
 
 	/**
 	 * Fires on every XP drop while training, so this only updates in-memory
-	 * state and marks dirty - see {@link #markDirty()}.
+	 * state and marks skills changed - see {@link #markSkillsDirty()}.
 	 */
 	synchronized void updateSkill(long accountHash, String skillName, int realLevel, int xp)
 	{
@@ -219,7 +276,7 @@ class AccountStore
 		record.skillLevels = levels;
 		record.skillXp = experience;
 		record.combatLevel = CombatLevel.calculate(levels);
-		markDirty();
+		markSkillsDirty();
 	}
 
 	/**
