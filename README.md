@@ -12,6 +12,10 @@ It exists because the game gives you no way to answer "how much do I have,
 in total, across everything I own", and no way to remember what an alt's bank
 looked like without logging into it.
 
+![The Accounts tab: every account side by side](docs/screenshots/accounts.png)
+
+*Screenshots use made-up demo accounts - none of the names or figures are real.*
+
 ## What it tracks
 
 **Per account** - bank contents item by item, all eight Grand Exchange slots,
@@ -50,6 +54,24 @@ a separate window, opened from the panel:
 | Wealth history | dated snapshots, per account or combined |
 | Interesting | roster-wide totals and things worth noticing |
 | Settings | themes, number formats, colours, thresholds, backups |
+
+## Screenshots
+
+**All items** - every item summed across accounts, and who holds how much of it.
+
+![The All items tab](docs/screenshots/all-items.png)
+
+**Grand Exchange** - every offer's progress, and how its price sits against the market.
+
+![The Grand Exchange tab](docs/screenshots/grand-exchange.png)
+
+**Wealth split** - each account's share of the total, and how it has changed.
+
+![The Wealth split tab](docs/screenshots/wealth-split.png)
+
+**Interesting** - roster-wide totals, the biggest price movers, and curiosities like burnt food.
+
+![The Interesting tab](docs/screenshots/interesting.png)
 
 ## Privacy
 
