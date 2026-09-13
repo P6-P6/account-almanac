@@ -869,7 +869,11 @@ public class AccountAlmanacPlugin extends Plugin
 		}
 	}
 
-	/** Runs a backup immediately, for the settings tab's manual button. */
+	/**
+	 * Runs a backup on the calling thread. Start-up and shut-down already queue
+	 * it on the executor; the settings tab goes through
+	 * {@link #backupInBackground} instead.
+	 */
 	File backupNow()
 	{
 		// Flush first, or the backup captures the last saved state rather than
@@ -884,6 +888,36 @@ public class AccountAlmanacPlugin extends Plugin
 			backupManager.pruneOldBackups(config.backupsToKeep());
 		}
 		return written;
+	}
+
+	/**
+	 * Runs {@link #backupNow} on the background executor, for the settings
+	 * tab's button. A backup serialises and copies every data file -
+	 * megabytes - and run on the Swing thread it froze the whole client window
+	 * until it finished.
+	 *
+	 * @param onDone run on the Swing thread with the backup folder ({@code null}
+	 *               when there was nothing to back up) or the error that stopped it
+	 */
+	void backupInBackground(java.util.function.BiConsumer<File, RuntimeException> onDone)
+	{
+		executor.execute(() ->
+		{
+			File written = null;
+			RuntimeException failure = null;
+			try
+			{
+				written = backupNow();
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("Manual backup failed", e);
+				failure = e;
+			}
+			File result = written;
+			RuntimeException error = failure;
+			SwingUtilities.invokeLater(() -> onDone.accept(result, error));
+		});
 	}
 
 	BackupManager backups()

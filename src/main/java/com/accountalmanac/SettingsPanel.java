@@ -232,7 +232,7 @@ class SettingsPanel extends JPanel
 			"Older backups beyond this are deleted, oldest first.");
 
 		JButton backupNow = new JButton("Back up now");
-		backupNow.addActionListener(e -> runBackupNow());
+		backupNow.addActionListener(e -> runBackupNow(backupNow));
 		JButton openFolder = new JButton("Show backup folder path");
 		openFolder.addActionListener(e -> JOptionPane.showMessageDialog(this,
 			plugin.backups().backupsDir().getAbsolutePath(),
@@ -364,22 +364,42 @@ class SettingsPanel extends JPanel
 		return String.format(Locale.ROOT, "%.0f KB", kb);
 	}
 
-	private void runBackupNow()
+	/**
+	 * Backs up without holding the Swing thread - see
+	 * {@link AccountAlmanacPlugin#backupInBackground}. The button stays
+	 * disabled until the result is back, so a second click cannot queue another
+	 * copy behind the first.
+	 */
+	private void runBackupNow(JButton button)
 	{
-		File written = plugin.backupNow();
-		if (written == null)
+		String idleText = button.getText();
+		button.setEnabled(false);
+		button.setText("Backing up...");
+
+		plugin.backupInBackground((written, error) ->
 		{
-			JOptionPane.showMessageDialog(this,
-				"Nothing to back up yet - no data files have been written.",
-				"Backup", JOptionPane.INFORMATION_MESSAGE);
-		}
-		else
-		{
-			JOptionPane.showMessageDialog(this,
-				"Backup written to:\n" + written.getAbsolutePath(),
-				"Backup", JOptionPane.INFORMATION_MESSAGE);
-		}
-		reload();
+			button.setText(idleText);
+			button.setEnabled(true);
+			if (error != null)
+			{
+				JOptionPane.showMessageDialog(this,
+					"The backup failed: " + error.getMessage(),
+					"Backup", JOptionPane.ERROR_MESSAGE);
+			}
+			else if (written == null)
+			{
+				JOptionPane.showMessageDialog(this,
+					"Nothing to back up yet - no data files have been written.",
+					"Backup", JOptionPane.INFORMATION_MESSAGE);
+			}
+			else
+			{
+				JOptionPane.showMessageDialog(this,
+					"Backup written to:\n" + written.getAbsolutePath(),
+					"Backup", JOptionPane.INFORMATION_MESSAGE);
+			}
+			reload();
+		});
 	}
 
 	// ------------------------------------------------------------------
