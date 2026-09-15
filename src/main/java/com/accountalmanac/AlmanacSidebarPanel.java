@@ -232,9 +232,9 @@ class AlmanacSidebarPanel extends PluginPanel
 
 	private void showViewerWindow()
 	{
+		// No toFront() or requestFocus(): hub plugins may not change which
+		// window is focused.
 		viewer.setVisible(true);
-		viewer.toFront();
-		viewer.requestFocus();
 	}
 
 	/**
