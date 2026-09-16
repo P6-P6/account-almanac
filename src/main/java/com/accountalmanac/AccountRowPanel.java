@@ -164,38 +164,43 @@ class AccountRowPanel extends JPanel
 			details.add(small("GE: " + Format.gp(geValue)));
 		}
 
-		StringBuilder meta = new StringBuilder();
+		// Two short lines rather than one long one: the sidebar is narrow, and
+		// everything on a single row was being cut off mid-number.
+		StringBuilder levels = new StringBuilder();
 		if (record.combatLevel > 0)
 		{
-			meta.append("cb ").append(record.combatLevel);
+			levels.append("cb ").append(record.combatLevel);
 		}
 		if (record.totalLevel() > 0)
 		{
-			if (meta.length() > 0)
+			if (levels.length() > 0)
 			{
-				meta.append("  -  ");
+				levels.append("  -  ");
 			}
-			meta.append(Format.exact(record.totalLevel())).append(" total");
+			levels.append(Format.exact(record.totalLevel())).append(" total");
 		}
+		if (levels.length() > 0)
+		{
+			details.add(small(levels.toString()));
+		}
+
+		StringBuilder counts = new StringBuilder();
 		if (record.hasQuestPoints())
 		{
-			if (meta.length() > 0)
-			{
-				meta.append("  -  ");
-			}
-			meta.append(record.questPointsLabel()).append(" qp");
+			counts.append(record.questPointsLabel()).append(" qp");
 		}
-		if (!record.bankItems.isEmpty())
+		int stacks = record.bankStackCount();
+		if (stacks > 0)
 		{
-			if (meta.length() > 0)
+			if (counts.length() > 0)
 			{
-				meta.append("  -  ");
+				counts.append("  -  ");
 			}
-			meta.append(record.bankItems.size()).append(" items");
+			counts.append(Format.exact(stacks)).append(" items");
 		}
-		if (meta.length() > 0)
+		if (counts.length() > 0)
 		{
-			details.add(small(meta.toString()));
+			details.add(small(counts.toString()));
 		}
 
 		// Last login gets its own coloured line rather than being folded into
