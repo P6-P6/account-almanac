@@ -25,7 +25,8 @@ class ItemIconCache
 {
 	private final ItemManager itemManager;
 	private final JComponent repaintTarget;
-	private final Map<Integer, ImageIcon> icons = new HashMap<>();
+	/** Keyed by item id and stack size: the sprite changes with the amount. */
+	private final Map<Long, ImageIcon> icons = new HashMap<>();
 
 	private boolean repaintPending;
 
@@ -41,25 +42,44 @@ class ItemIconCache
 	}
 
 	/**
+	 * @return an icon for a single one of the item, possibly still blank, or
+	 *         {@code null} if sprites are unavailable
+	 */
+	Icon get(int itemId)
+	{
+		return get(itemId, 1L);
+	}
+
+	/**
+	 * @param quantity how many the row holds, which picks the stack sprite -
+	 *                 a pile of coins rather than one coin, a bundle of arrows
+	 *                 rather than one arrow
 	 * @return an icon for the item, possibly still blank, or {@code null}
 	 *         if sprites are unavailable
 	 */
-	Icon get(int itemId)
+	Icon get(int itemId, long quantity)
 	{
 		if (itemManager == null || itemId <= 0)
 		{
 			return null;
 		}
 
-		ImageIcon cached = icons.get(itemId);
+		// The client takes an int, and the sprite only changes at the game's
+		// own stack thresholds, so clamping loses nothing.
+		int stack = (int) Math.max(1L, Math.min(Integer.MAX_VALUE, quantity));
+		long key = ((long) itemId << 32) | stack;
+
+		ImageIcon cached = icons.get(key);
 		if (cached != null)
 		{
 			return cached;
 		}
 
-		AsyncBufferedImage image = itemManager.getImage(itemId);
+		// stackable=false: every table carries its own quantity column, so
+		// RuneLite must not draw its number over the sprite as well.
+		AsyncBufferedImage image = itemManager.getImage(itemId, stack, false);
 		ImageIcon icon = new ImageIcon(image);
-		icons.put(itemId, icon);
+		icons.put(key, icon);
 		image.onLoaded(this::scheduleRepaint);
 		return icon;
 	}

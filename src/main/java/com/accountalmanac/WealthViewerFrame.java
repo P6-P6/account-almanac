@@ -1357,7 +1357,9 @@ class WealthViewerFrame extends JFrame
 		setRenderer(itemTable, quantityRenderer(), 1);
 		setRenderer(itemTable, new ItemCellRenderer(itemIcons,
 			row -> row >= 0 && row < currentTotals.size()
-				? currentTotals.get(row).itemId : null), 0);
+				? currentTotals.get(row).itemId : null,
+			row -> row >= 0 && row < currentTotals.size()
+				? currentTotals.get(row).totalQuantity : 1L), 0);
 		itemTable.getColumnModel().getColumn(0).setPreferredWidth(230);
 
 		// Sort by total value descending by default - the expensive stuff is
@@ -1427,7 +1429,7 @@ class WealthViewerFrame extends JFrame
 		setRenderer(offerTable, marketGapRenderer(), 6);
 		setRenderer(offerTable, progressRenderer(), 4);
 		setRenderer(offerTable, new ItemCellRenderer(offerIcons,
-			row -> offerModel.itemIdAt(row)), 3);
+			row -> offerModel.itemIdAt(row), offerModel::quantityAt), 3);
 		offerTable.getColumnModel().getColumn(0).setPreferredWidth(130);
 		offerTable.getColumnModel().getColumn(3).setPreferredWidth(190);
 		offerTable.getColumnModel().getColumn(4).setPreferredWidth(140);
@@ -2334,7 +2336,7 @@ class WealthViewerFrame extends JFrame
 		// Its own icon cache: the cache repaints the component it was built
 		// for as sprites arrive, so the two curiosity tables cannot share one.
 		setRenderer(table, new ItemCellRenderer(new ItemIconCache(itemManager, table),
-			model::itemIdAt), 0);
+			model::itemIdAt, model::heldAt), 0);
 		table.getColumnModel().getColumn(0).setPreferredWidth(200);
 		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		table.setToolTipText("Select a row to see which accounts hold it");
@@ -3579,16 +3581,29 @@ class WealthViewerFrame extends JFrame
 		Integer idAt(int modelRow);
 	}
 
+	/** Resolves how many that row holds, so the sprite shows the right stack. */
+	private interface QuantityLookup
+	{
+		long quantityAt(int modelRow);
+	}
+
 	/** Item name cell with its sprite alongside. */
 	private static class ItemCellRenderer extends DefaultTableCellRenderer
 	{
 		private final ItemIconCache icons;
 		private final IdLookup lookup;
+		private final QuantityLookup quantities;
 
 		ItemCellRenderer(ItemIconCache icons, IdLookup lookup)
 		{
+			this(icons, lookup, row -> 1L);
+		}
+
+		ItemCellRenderer(ItemIconCache icons, IdLookup lookup, QuantityLookup quantities)
+		{
 			this.icons = icons;
 			this.lookup = lookup;
+			this.quantities = quantities;
 		}
 
 		@Override
@@ -3597,15 +3612,18 @@ class WealthViewerFrame extends JFrame
 		{
 			super.getTableCellRendererComponent(table, value, selected, focused, row, column);
 			Integer id = null;
+			long quantity = 1L;
 			try
 			{
-				id = lookup.idAt(table.convertRowIndexToModel(row));
+				int modelRow = table.convertRowIndexToModel(row);
+				id = lookup.idAt(modelRow);
+				quantity = quantities.quantityAt(modelRow);
 			}
 			catch (IndexOutOfBoundsException e)
 			{
 				// Row vanished between sort and paint; render without a sprite.
 			}
-			setIcon(id == null ? null : icons.get(id));
+			setIcon(id == null ? null : icons.get(id, quantity));
 			return this;
 		}
 	}
@@ -3654,6 +3672,13 @@ class WealthViewerFrame extends JFrame
 			}
 			int id = rows.get(modelRow).offer.itemId;
 			return id > 0 ? id : null;
+		}
+
+		/** Offer size, so the name cell's sprite shows the right stack. */
+		long quantityAt(int modelRow)
+		{
+			GrandExchangeRecord offer = offerAt(modelRow);
+			return offer == null ? 1L : Math.max(1L, offer.totalQuantity);
 		}
 
 		@Override
