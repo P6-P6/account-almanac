@@ -136,6 +136,7 @@ class WealthViewerFrame extends JFrame
 
 	private final JLabel totalXpLabel = new JLabel();
 	private final JLabel totalLevelSumLabel = new JLabel();
+	private final JLabel nineNinesLabel = new JLabel();
 	private final JLabel ironmanBreakdownLabel = new JLabel();
 	private final JLabel geActivityLabel = new JLabel();
 	private final JLabel dataCompletenessLabel = new JLabel();
@@ -2265,7 +2266,7 @@ class WealthViewerFrame extends JFrame
 		stats.setOpaque(false);
 
 		for (JLabel label : new JLabel[] {
-			totalXpLabel, totalLevelSumLabel, bondsLabel, playtimeLabel, highAlchLabel,
+			totalXpLabel, totalLevelSumLabel, nineNinesLabel, bondsLabel, playtimeLabel, highAlchLabel,
 			riserLabel, dropperLabel,
 			topTotalLevelLabel, topCombatLabel,
 			ironmanBreakdownLabel, geActivityLabel, dataCompletenessLabel
@@ -2429,6 +2430,10 @@ class WealthViewerFrame extends JFrame
 	{
 		long totalXp = 0L;
 		long totalLevelSum = 0L;
+		int total99s = 0;
+		int accountsWith99 = 0;
+		// Sorted, so a tie between two skills always names the same one.
+		Map<String, Integer> nines = new java.util.TreeMap<>();
 		AccountRecord topTotalLevel = null;
 		AccountRecord topCombat = null;
 		Map<String, Integer> typeCounts = new java.util.LinkedHashMap<>();
@@ -2446,6 +2451,22 @@ class WealthViewerFrame extends JFrame
 			{
 				topCombat = record;
 			}
+			boolean has99 = false;
+			for (Map.Entry<String, Integer> skill : record.skillLevels.entrySet())
+			{
+				// OVERALL is the game's total-level pseudo-skill, not a 99.
+				if (skill.getValue() != null && skill.getValue() >= 99 && !"OVERALL".equals(skill.getKey()))
+				{
+					total99s++;
+					has99 = true;
+					nines.merge(skill.getKey(), 1, Integer::sum);
+				}
+			}
+			if (has99)
+			{
+				accountsWith99++;
+			}
+
 			String type = record.accountType == null || record.accountType.isEmpty()
 				? "Unknown" : AccountTypeBadge.fullLabel(record.accountType);
 			typeCounts.merge(type, 1, Integer::sum);
@@ -2457,6 +2478,26 @@ class WealthViewerFrame extends JFrame
 
 		totalXpLabel.setText("Total XP across all accounts: " + Format.exact(totalXp));
 		totalLevelSumLabel.setText("Combined total level: " + Format.exact(totalLevelSum));
+
+		if (total99s == 0)
+		{
+			nineNinesLabel.setText("Level 99s: none yet");
+		}
+		else
+		{
+			Map.Entry<String, Integer> topSkill = null;
+			for (Map.Entry<String, Integer> entry : nines.entrySet())
+			{
+				if (topSkill == null || entry.getValue() > topSkill.getValue())
+				{
+					topSkill = entry;
+				}
+			}
+			nineNinesLabel.setText(String.format(Locale.ROOT,
+				"Level 99s: %s across %d account%s - most 99s: %s (%d)",
+				Format.exact(total99s), accountsWith99, accountsWith99 == 1 ? "" : "s",
+				SkillOrder.prettify(topSkill.getKey()), topSkill.getValue()));
+		}
 
 		StringBuilder types = new StringBuilder("Account types: ");
 		boolean first = true;
