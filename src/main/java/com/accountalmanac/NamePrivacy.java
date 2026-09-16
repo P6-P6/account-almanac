@@ -17,7 +17,7 @@ package com.accountalmanac;
  */
 public enum NamePrivacy
 {
-	REAL("Show real names"),
+	REAL("Real names"),
 
 	/**
 	 * Masks the login name and label but leaves the character's display name
@@ -25,17 +25,17 @@ public enum NamePrivacy
 	 * sees it - whereas the login name identifies the person behind the
 	 * account. This hides the half that actually matters.
 	 */
-	LOGIN_ONLY("Hide login names only"),
+	LOGIN_ONLY("Hide login names"),
 
 	/** Every name replaced with asterisks. */
-	ASTERISKS("Masked (*****)"),
+	ASTERISKS("Asterisks"),
 
 	/**
 	 * A stable stand-in name per account. Stable matters: a name that changed
 	 * between renders would make charts and tables impossible to follow, which
 	 * would defeat the purpose rather than just hiding.
 	 */
-	RANDOM("Randomised stand-in names"),
+	RANDOM("Stand-in names"),
 
 	/** No name at all, just a short id derived from the account hash. */
 	HIDDEN("Hidden");

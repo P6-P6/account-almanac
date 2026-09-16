@@ -121,7 +121,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "maxChartSlices",
 		name = "Max chart slices",
-		description = "Accounts beyond this many are grouped into a single 'Other' slice so the pie stays readable. The chart's own 'Show all' button expands past this without changing the setting.",
+		description = "Accounts beyond this many are grouped into one 'Other' slice. The chart's own 'Show all' button expands past it.",
 		position = 3
 	)
 	@Range(min = 1, max = 60)
@@ -133,7 +133,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "viewerTheme",
 		name = "Theme",
-		description = "Colour scheme for this plugin's sidebar panel and viewer window. Defaults to RuneLite's own palette so it matches the client's other panels; the rest of the client is never affected.",
+		description = "Colour scheme for this plugin's panel and viewer window. The rest of the client is never affected.",
 		position = 6
 	)
 	default ViewerTheme viewerTheme()
@@ -144,7 +144,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "priceMovementHours",
 		name = "Price movement over",
-		description = "How far back the Interesting tab's biggest riser and dropper compare against. The plugin makes no network requests, so it remembers prices itself rather than asking for history - the comparison starts once a baseline that old exists.",
+		description = "How far back the Interesting tab's biggest riser and dropper look. Starts working once a baseline that old exists.",
 		position = 8
 	)
 	@Units(" hours")
@@ -168,7 +168,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "refreshPricesOnStartup",
 		name = "Reprice on start-up",
-		description = "Re-price every stored bank and Grand Exchange offer against current prices when the client starts. Snapshots are taken whenever a bank happened to be open, so without this the totals compare prices from different days.",
+		description = "Re-price every stored bank and offer when the client starts, so totals do not mix prices from different days.",
 		position = 5
 	)
 	default boolean refreshPricesOnStartup()
@@ -179,7 +179,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "defaultTimeframe",
 		name = "Default timeframe",
-		description = "Window pre-selected on the Stats and Wealth split tabs. 'All time' is the default because it is the only one that reports anything on the first day of tracking.",
+		description = "Window pre-selected on the Stats and Wealth split tabs. 'All time' also reports on the first day of tracking.",
 		position = 4
 	)
 	default Timeframe defaultTimeframe()
@@ -343,7 +343,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "reminderAfterDays",
 		name = "Remind after",
-		description = "Days without a login before an account is listed as needing attention. Defaults to 14, the point at which a Grand Exchange offer's price is likely well behind the market.",
+		description = "Days without a login before an account is listed as needing attention.",
 		position = 33,
 		section = remindersSection
 	)
@@ -373,7 +373,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "snapshotIntervalHours",
 		name = "Snapshot every",
-		description = "Smallest gap between retained history snapshots. 24 hours gives the 7 day window seven distinct points to compare; shorter intervals give finer charts and a bigger file.",
+		description = "Smallest gap between retained history snapshots. Shorter gives finer charts and a bigger file.",
 		position = 41,
 		section = historySection
 	)
@@ -399,7 +399,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "backupOnSession",
 		name = "Back up on start and exit",
-		description = "Also write a backup when the client starts and when it closes, on top of the interval below. Backups are cheap - a copy of three files - and this covers the case where the interval has not come round before something goes wrong.",
+		description = "Also back up when the client starts and closes, on top of the interval below.",
 		position = 42,
 		section = historySection
 	)
@@ -465,7 +465,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "geProgressBarColours",
 		name = "Colour the progress bar",
-		description = "Shade the Grand Exchange progress bar by how far along the offer is - red when nothing has traded, through amber, to green when it is complete. Turn this off for a single colour that only turns green at the end.",
+		description = "Shade the Grand Exchange progress bar red through amber to green as the offer fills.",
 		position = 54,
 		section = geSection
 	)
@@ -478,7 +478,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "showHighAlch",
 		name = "Show high alch totals",
-		description = "Add the combined high alchemy value of everything held to the Interesting tab. Useful when deciding whether a pile of low-value stock is worth alching rather than selling.",
+		description = "Add the combined high alchemy value of everything held to the Interesting tab.",
 		position = 16,
 		section = numbersSection
 	)
@@ -502,7 +502,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "maxGeEvents",
 		name = "Events to keep",
-		description = "Oldest events beyond this many are dropped. Purchase and sale history read from this log, so a larger number reaches further back. Roughly 235 bytes each, so 100,000 is about 22 MB and the 500,000 ceiling about 112 MB. The default suits one or two accounts for years; raise it if you play many accounts heavily. The whole log is held in memory and rewritten on every save, which is what sets the ceiling.",
+		description = "Oldest events beyond this many are dropped; purchase and sale history reads from this log. Roughly 235 bytes each, so 100,000 is about 22 MB.",
 		position = 52,
 		section = geSection
 	)
@@ -519,7 +519,7 @@ public interface AccountAlmanacConfig extends Config
 	@ConfigItem(
 		keyName = "namePrivacy",
 		name = "Account names",
-		description = "Mask account names in the panel and viewer, for screenshots and screen sharing. Display only - nothing is written back, the stored data and the event log keep the real names, and switching back to 'Show real names' restores them immediately.",
+		description = "Mask account names in the panel and viewer, for screenshots. Display only - the stored files keep the real names.",
 		position = 56,
 		section = privacySection
 	)

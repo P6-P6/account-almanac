@@ -24,13 +24,13 @@ import java.util.Locale;
 public enum NumberFormatMode
 {
 	/** {@code 237.7K} - short, for legends and narrow columns. */
-	ABBREVIATED("Abbreviated (237.7K)"),
+	ABBREVIATED("Abbreviated"),
 
 	/** {@code 237,700} - full precision, thousands separated. */
-	FULL_WITH_COMMAS("Full with commas (237,700)"),
+	FULL_WITH_COMMAS("With commas"),
 
 	/** {@code 237700} - full precision, no separators, easy to copy out. */
-	FULL_PLAIN("Full, no commas (237700)");
+	FULL_PLAIN("Plain digits");
 
 	private final String label;
 

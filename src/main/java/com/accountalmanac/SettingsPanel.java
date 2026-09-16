@@ -121,7 +121,7 @@ class SettingsPanel extends JPanel
 		return section("Privacy",
 			"For screenshots and screen sharing. This is display only - the stored roster, the "
 				+ "Grand Exchange log and every backup keep the real names, so switching back to "
-				+ "'Show real names' brings them straight back. Randomised stand-ins are stable "
+				+ "'Real names' brings them straight back. Randomised stand-ins are stable "
 				+ "per account, so charts and tables stay readable while masked.", grid);
 	}
 
