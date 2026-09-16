@@ -1329,6 +1329,10 @@ class WealthViewerFrame extends JFrame
 		table.setToolTipText("Double-click a row to view its stats");
 		setRenderer(table, gpRenderer(), 9, 10, 11);
 		setRenderer(table, questPointsRenderer(), 8);
+		setRenderer(table, summaryCountRenderer(AccountRecord::questsLabel), 15);
+		setRenderer(table, summaryCountRenderer(AccountRecord::achievementsLabel), 16);
+		setRenderer(table, summaryCountRenderer(AccountRecord::combatTasksLabel), 17);
+		setRenderer(table, summaryCountRenderer(AccountRecord::collectionsLabel), 18);
 		// Group (3) and Type (4) both name the account type, so both get the helm.
 		setRenderer(table, accountTypeIconRenderer(), 3, 4);
 		// Last login and days-since are the two columns the green/yellow/red
@@ -3415,6 +3419,37 @@ class WealthViewerFrame extends JFrame
 	 * the record rather than assumed, so an account captured before a quest
 	 * release still shows the total that applied when it was read.
 	 */
+	/**
+	 * Shows an Account Summary counter as {@code done/total}, from the record
+	 * rather than the cell: the cell holds the completed count on its own so
+	 * the column sorts numerically.
+	 */
+	private DefaultTableCellRenderer summaryCountRenderer(java.util.function.Function<AccountRecord, String> label)
+	{
+		return new DefaultTableCellRenderer()
+		{
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+				boolean selected, boolean focused, int row, int column)
+			{
+				super.getTableCellRendererComponent(t, value, selected, focused, row, column);
+				setHorizontalAlignment(RIGHT);
+
+				AccountRecord record = null;
+				try
+				{
+					record = accountModel.recordAt(t.convertRowIndexToModel(row));
+				}
+				catch (IndexOutOfBoundsException e)
+				{
+					// Row vanished between sort and paint.
+				}
+				setText(record == null ? "-" : label.apply(record));
+				return this;
+			}
+		};
+	}
+
 	private DefaultTableCellRenderer questPointsRenderer()
 	{
 		return new DefaultTableCellRenderer()
@@ -3836,7 +3871,10 @@ class WealthViewerFrame extends JFrame
 		private static final String[] COLUMNS = {
 			"Login name", "Display name", "Label", "Group", "Type", "Status",
 			"Combat", "Total lvl", "Quests", "Bank", "GE", "Total",
-			"Last login", "Days", "Bank last seen"
+			"Last login", "Days", "Bank last seen",
+			// The game's own Account Summary counters, appended rather than
+			// slotted in: the columns above are addressed by index elsewhere.
+			"Quests done", "Achievements", "Combat tasks", "Collections"
 		};
 
 		/** Column indexes other code needs to address by name rather than number. */
@@ -3891,6 +3929,12 @@ class WealthViewerFrame extends JFrame
 				case 7:
 				case 8:
 				case 13:
+				// Each summary column holds the completed count alone, so the
+				// sorter orders it numerically and the renderer adds the total.
+				case 15:
+				case 16:
+				case 17:
+				case 18:
 					return Integer.class;
 				case 9:
 				case 10:
@@ -3972,6 +4016,14 @@ class WealthViewerFrame extends JFrame
 					return record.hasBankSnapshot()
 						? Format.relativeTime(record.lastSnapshotAt)
 						: "never opened";
+				case 15:
+					return record.questsCompleted;
+				case 16:
+					return record.achievementsCompleted;
+				case 17:
+					return record.combatTasksCompleted;
+				case 18:
+					return record.collectionsLogged;
 				default:
 					return "";
 			}

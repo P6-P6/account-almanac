@@ -26,9 +26,13 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.StatChanged;
+import java.util.Locale;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.util.Text;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -472,6 +476,141 @@ public class AccountAlmanacPlugin extends Plugin
 			tryUpdateDisplayName();
 			tryUpdatePlaytime();
 			tryUpdateQuestPoints();
+			tryUpdateSummaryCounts();
+		}
+
+		// Two of the Account Summary counters exist nowhere else, so they are
+		// taken whenever that screen happens to be open.
+		readAccountSummaryPanel();
+	}
+
+	/**
+	 * Quests completed and collection log slots filled, both straight from
+	 * vars, so they are current on every login without opening anything.
+	 */
+	private void tryUpdateSummaryCounts()
+	{
+		if (currentAccountHash == null)
+		{
+			return;
+		}
+		store.updateSummaryCounts(currentAccountHash,
+			client.getVarbitValue(VarbitID.QUESTS_COMPLETED_COUNT),
+			client.getVarbitValue(VarbitID.QUESTS_TOTAL_COUNT),
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT),
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX));
+	}
+
+	/**
+	 * Reads achievement diary and combat task counts off the Account Summary
+	 * screen while it is open.
+	 *
+	 * <p>Neither has a whole-account var to read - the game keeps diary tasks
+	 * per region and combat tasks per boss, and both totals move with every
+	 * update. That screen already does the arithmetic, so the figures are read
+	 * from its own text: a label such as "Combat Tasks Completed:" followed by
+	 * "17/855". While it is closed the last capture simply stands.
+	 */
+	private void readAccountSummaryPanel()
+	{
+		if (currentAccountHash == null)
+		{
+			return;
+		}
+
+		Widget contents = client.getWidget(InterfaceID.AccountSummarySidepanel.SUMMARY_CONTENTS);
+		if (contents == null || contents.isHidden())
+		{
+			return;
+		}
+
+		List<String> texts = new ArrayList<>();
+		collectText(contents, texts, 0);
+
+		int[] achievements = null;
+		int[] combat = null;
+		String label = "";
+		for (String raw : texts)
+		{
+			String text = Text.removeTags(raw).trim();
+			if (text.isEmpty())
+			{
+				continue;
+			}
+			int[] fraction = parseFraction(text);
+			if (fraction == null)
+			{
+				// Not a count, so it names whichever count comes next.
+				label = text.toLowerCase(Locale.ROOT);
+				continue;
+			}
+			if (label.contains("achievement"))
+			{
+				achievements = fraction;
+			}
+			else if (label.contains("combat"))
+			{
+				combat = fraction;
+			}
+		}
+
+		if (achievements == null && combat == null)
+		{
+			return;
+		}
+		store.updateSummaryTasks(currentAccountHash,
+			achievements == null ? 0 : achievements[0],
+			achievements == null ? 0 : achievements[1],
+			combat == null ? 0 : combat[0],
+			combat == null ? 0 : combat[1]);
+	}
+
+	/** Every piece of text under a widget, in layout order. */
+	private static void collectText(Widget widget, List<String> into, int depth)
+	{
+		// The screen nests a few levels; the cap stops a malformed tree looping.
+		if (widget == null || depth > 4)
+		{
+			return;
+		}
+
+		String text = widget.getText();
+		if (text != null && !text.isEmpty())
+		{
+			into.add(text);
+		}
+
+		Widget[][] groups = {widget.getStaticChildren(), widget.getDynamicChildren(), widget.getNestedChildren()};
+		for (Widget[] children : groups)
+		{
+			if (children == null)
+			{
+				continue;
+			}
+			for (Widget child : children)
+			{
+				collectText(child, into, depth + 1);
+			}
+		}
+	}
+
+	/** {@code "17/855"} as {@code [17, 855]}, or null when it is not a count. */
+	private static int[] parseFraction(String text)
+	{
+		int slash = text.indexOf('/');
+		if (slash <= 0 || slash == text.length() - 1)
+		{
+			return null;
+		}
+		try
+		{
+			int done = Integer.parseInt(text.substring(0, slash).replace(",", "").trim());
+			int total = Integer.parseInt(text.substring(slash + 1).replace(",", "").trim());
+			return total > 0 && done >= 0 ? new int[]{done, total} : null;
+		}
+		catch (NumberFormatException e)
+		{
+			return null;
 		}
 	}
 

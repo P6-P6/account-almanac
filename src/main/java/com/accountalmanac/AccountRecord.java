@@ -117,6 +117,25 @@ class AccountRecord
 	 */
 	int questPointsMax;
 
+	/**
+	 * The counters the game's own Account Summary screen shows, each as
+	 * done-out-of-total. Zero totals mean never captured, which is why every
+	 * label below shows a dash rather than "0/0".
+	 *
+	 * <p>Quests and the collection log come from vars and so update on every
+	 * login. Achievement diaries and combat tasks have no whole-account var -
+	 * the game keeps them per region and per boss - so those two are read from
+	 * the Account Summary screen when it is opened.
+	 */
+	int questsCompleted;
+	int questsTotal;
+	int achievementsCompleted;
+	int achievementsTotal;
+	int combatTasksCompleted;
+	int combatTasksTotal;
+	int collectionsLogged;
+	int collectionsTotal;
+
 	/** Total value of {@link #bankItems} as of {@link #lastUpdated}. */
 	long bankValue;
 	long lastUpdated;

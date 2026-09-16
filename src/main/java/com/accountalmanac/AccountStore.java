@@ -359,6 +359,72 @@ class AccountStore
 		}
 	}
 
+	/**
+	 * Quests completed and collection log slots filled, both read from vars.
+	 *
+	 * <p>A zero total is ignored the same way quest points ignore one: the vars
+	 * are unpopulated for the first few ticks after login, and writing that
+	 * would replace a real figure with "0/0".
+	 */
+	synchronized void updateSummaryCounts(long accountHash, int questsDone, int questsTotal,
+		int collectionsDone, int collectionsTotal)
+	{
+		AccountRecord record = findOrCreate(accountHash);
+		boolean changed = false;
+
+		if (questsTotal > 0 && questsDone >= 0
+			&& (record.questsCompleted != questsDone || record.questsTotal != questsTotal))
+		{
+			record.questsCompleted = questsDone;
+			record.questsTotal = questsTotal;
+			changed = true;
+		}
+		if (collectionsTotal > 0 && collectionsDone >= 0
+			&& (record.collectionsLogged != collectionsDone || record.collectionsTotal != collectionsTotal))
+		{
+			record.collectionsLogged = collectionsDone;
+			record.collectionsTotal = collectionsTotal;
+			changed = true;
+		}
+
+		if (changed)
+		{
+			markDirty();
+		}
+	}
+
+	/**
+	 * Achievement diary tasks and combat tasks, as read off the Account Summary
+	 * screen. Either may be absent from a given read, so a zero total leaves
+	 * whatever was captured before alone.
+	 */
+	synchronized void updateSummaryTasks(long accountHash, int achievementsDone, int achievementsTotal,
+		int combatDone, int combatTotal)
+	{
+		AccountRecord record = findOrCreate(accountHash);
+		boolean changed = false;
+
+		if (achievementsTotal > 0 && achievementsDone >= 0
+			&& (record.achievementsCompleted != achievementsDone || record.achievementsTotal != achievementsTotal))
+		{
+			record.achievementsCompleted = achievementsDone;
+			record.achievementsTotal = achievementsTotal;
+			changed = true;
+		}
+		if (combatTotal > 0 && combatDone >= 0
+			&& (record.combatTasksCompleted != combatDone || record.combatTasksTotal != combatTotal))
+		{
+			record.combatTasksCompleted = combatDone;
+			record.combatTasksTotal = combatTotal;
+			changed = true;
+		}
+
+		if (changed)
+		{
+			markDirty();
+		}
+	}
+
 	synchronized void updateCategory(long accountHash, String category)
 	{
 		AccountRecord record = findOrCreate(accountHash);
