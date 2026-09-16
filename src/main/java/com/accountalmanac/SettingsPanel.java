@@ -259,11 +259,28 @@ class SettingsPanel extends JPanel
 		addRow(grid, row++, "Logging", logging,
 			"Offers started, finished and cancelled, plus items and coins collected.");
 
-		addRow(grid, row, "Events to keep",
+		addRow(grid, row++, "Events to keep",
 			spinner("maxGeEvents", config.maxGeEvents(), 500, 500000, ""),
 			"Purchase and sale history read from this log, so a bigger number reaches further back.");
 
-		return section("Grand Exchange log", "", grid);
+		JComboBox<GeLogArchive> archiveBox = new JComboBox<>(GeLogArchive.values());
+		archiveBox.setSelectedItem(config.geLogArchive());
+		archiveBox.addActionListener(e ->
+		{
+			if (!populating)
+			{
+				write("geLogArchive", archiveBox.getSelectedItem());
+			}
+		});
+		addRow(grid, row++, "Archive the log", archiveBox,
+			"A dated copy in accountalmanac/ge-log-archive, taken once a period.");
+		addRow(grid, row, "Archives to keep",
+			spinner("geLogArchivesToKeep", config.geLogArchivesToKeep(), 1, 60, ""),
+			"Older archives beyond this many are deleted, oldest first.");
+
+		return section("Grand Exchange log",
+			"Events fall off the end once the limit is reached. An archive keeps a copy of the "
+				+ "log from before that happened, so old purchase prices stay recoverable.", grid);
 	}
 
 	private JPanel buildDataSection()

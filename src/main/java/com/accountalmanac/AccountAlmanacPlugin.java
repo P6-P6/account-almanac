@@ -325,23 +325,51 @@ public class AccountAlmanacPlugin extends Plugin
 	 */
 	private void runMaintenance()
 	{
-		if (!config.autoBackup())
-		{
-			return;
-		}
 		try
 		{
-			File written = backupManager.backupIfDue(System.currentTimeMillis(), config.backupIntervalDays());
-			if (written != null)
+			if (config.autoBackup())
 			{
-				int pruned = backupManager.pruneOldBackups(config.backupsToKeep());
-				log.debug("Backup written to {} ({} old backups pruned)", written.getName(), pruned);
+				File written = backupManager.backupIfDue(System.currentTimeMillis(), config.backupIntervalDays());
+				if (written != null)
+				{
+					int pruned = backupManager.pruneOldBackups(config.backupsToKeep());
+					log.debug("Backup written to {} ({} old backups pruned)", written.getName(), pruned);
+				}
 			}
+
+			archiveGeLogIfDue();
 		}
 		catch (RuntimeException e)
 		{
 			// A failed backup must never take the plugin down with it.
 			log.warn("Automatic backup failed", e);
+		}
+	}
+
+	/**
+	 * Copies the Grand Exchange log into a dated archive once per period, on
+	 * its own schedule rather than the backup one: the log is the only file
+	 * that discards data as it grows, so it is the only one where an old copy
+	 * holds something the current file cannot.
+	 */
+	private void archiveGeLogIfDue()
+	{
+		GeLogArchive schedule = config.geLogArchive();
+		if (schedule == null || !schedule.isOn())
+		{
+			return;
+		}
+
+		// The archive is a copy of the file, so anything still only in memory
+		// has to reach disk first or it would be missing from the copy.
+		geEventStore.flushIfDirty();
+
+		File archived = backupManager.archiveGeLogIfDue(System.currentTimeMillis(), schedule);
+		if (archived != null)
+		{
+			int pruned = backupManager.pruneGeArchives(config.geLogArchivesToKeep());
+			log.debug("Archived the Grand Exchange log to {} ({} old archives pruned)",
+				archived.getName(), pruned);
 		}
 	}
 

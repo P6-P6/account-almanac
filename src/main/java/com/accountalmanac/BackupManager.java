@@ -36,6 +36,11 @@ class BackupManager
 	private static final String BACKUPS_DIR = "backups";
 	private static final String PREFIX = "backup-";
 
+	/** Dated copies of the Grand Exchange log, kept apart from the full backups. */
+	private static final String GE_ARCHIVE_DIR = "ge-log-archive";
+	private static final String GE_ARCHIVE_PREFIX = "ge-events-";
+	private static final String GE_LOG = "ge-events.json";
+
 	/** Sorts lexicographically in time order, which is why it is used for folder names. */
 	private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
@@ -133,6 +138,103 @@ class BackupManager
 		for (File stale : backups.subList(limit, backups.size()))
 		{
 			if (deleteRecursively(stale))
+			{
+				removed++;
+			}
+		}
+		return removed;
+	}
+
+	File geArchiveDir()
+	{
+		return new File(pluginDir, GE_ARCHIVE_DIR);
+	}
+
+	/**
+	 * Copies the Grand Exchange log into a dated file, once per period.
+	 *
+	 * <p>Which period a run belongs to comes from the machine's clock - see
+	 * {@link GeLogArchive#periodKey}. The file for a period is written the
+	 * first time the client runs inside it and never rewritten, so the copy
+	 * holds the log as it stood at the end of the period before, and a client
+	 * that was closed over a month end still archives when it next opens.
+	 *
+	 * @return the file written, or {@code null} when the schedule is off, this
+	 *         period is already archived, or there is nothing to copy
+	 */
+	File archiveGeLogIfDue(long now, GeLogArchive schedule)
+	{
+		if (schedule == null || !schedule.isOn())
+		{
+			return null;
+		}
+
+		File source = new File(pluginDir, GE_LOG);
+		if (!source.exists())
+		{
+			return null;
+		}
+
+		File target = new File(geArchiveDir(),
+			GE_ARCHIVE_PREFIX + schedule.periodKey(local(now).toLocalDate()) + ".json");
+		if (target.exists())
+		{
+			return null;
+		}
+
+		File dir = target.getParentFile();
+		if (!dir.isDirectory() && !dir.mkdirs())
+		{
+			log.warn("Failed to create Grand Exchange archive directory {}", dir);
+			return null;
+		}
+
+		try
+		{
+			Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+		}
+		catch (IOException e)
+		{
+			log.warn("Failed to archive the Grand Exchange log", e);
+			return null;
+		}
+
+		log.debug("Archived the Grand Exchange log to {}", target.getName());
+		return target;
+	}
+
+	/** Existing Grand Exchange archives, newest first. */
+	List<File> listGeArchives()
+	{
+		File[] entries = geArchiveDir().listFiles(
+			f -> f.isFile() && f.getName().startsWith(GE_ARCHIVE_PREFIX) && f.getName().endsWith(".json"));
+		if (entries == null || entries.length == 0)
+		{
+			return Collections.emptyList();
+		}
+		List<File> archives = new ArrayList<>(Arrays.asList(entries));
+		// By write time, not by name: keys only sort chronologically within one
+		// schedule, and changing schedule mixes shapes - "2026" against
+		// "2026-W39" - where sorting by name would prune the wrong file.
+		archives.sort(Comparator.comparingLong(File::lastModified).reversed()
+			.thenComparing(Comparator.comparing(File::getName).reversed()));
+		return archives;
+	}
+
+	/** Deletes the oldest Grand Exchange archives until only {@code keep} remain. */
+	int pruneGeArchives(int keep)
+	{
+		List<File> archives = listGeArchives();
+		int limit = Math.max(1, keep);
+		if (archives.size() <= limit)
+		{
+			return 0;
+		}
+
+		int removed = 0;
+		for (File stale : archives.subList(limit, archives.size()))
+		{
+			if (stale.delete())
 			{
 				removed++;
 			}

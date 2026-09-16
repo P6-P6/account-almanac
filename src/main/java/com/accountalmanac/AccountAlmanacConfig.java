@@ -512,6 +512,31 @@ public interface AccountAlmanacConfig extends Config
 		return 100000;
 	}
 
+	@ConfigItem(
+		keyName = "geLogArchive",
+		name = "Archive the log",
+		description = "How often to copy the log into a dated file under accountalmanac/ge-log-archive, so trades dropped by the limit above are still on disk.",
+		position = 53,
+		section = geSection
+	)
+	default GeLogArchive geLogArchive()
+	{
+		return GeLogArchive.MONTHLY;
+	}
+
+	@ConfigItem(
+		keyName = "geLogArchivesToKeep",
+		name = "Archives to keep",
+		description = "Older archives beyond this many are deleted, oldest first.",
+		position = 54,
+		section = geSection
+	)
+	@Range(min = 1, max = 60)
+	default int geLogArchivesToKeep()
+	{
+		return 6;
+	}
+
 	// ------------------------------------------------------------------
 	// Privacy
 	// ------------------------------------------------------------------
