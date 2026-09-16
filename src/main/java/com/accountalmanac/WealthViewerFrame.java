@@ -19,6 +19,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -54,6 +55,7 @@ import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.util.ImageUtil;
 
 /**
  * The "AIO bank viewer" window: every tracked account side by side, every
@@ -167,6 +169,22 @@ class WealthViewerFrame extends JFrame
 	private final WealthChangeTableModel wealthChangeModel = new WealthChangeTableModel();
 	private final SnapshotTableModel snapshotModel = new SnapshotTableModel();
 	private static final String ALL_ACCOUNTS_OPTION = "All accounts (combined)";
+
+	/** Camera for the screenshot buttons. Loaded once; null if the resource is missing. */
+	private static final Icon CAMERA_ICON = cameraIcon();
+
+	private static Icon cameraIcon()
+	{
+		try
+		{
+			return new ImageIcon(ImageUtil.loadImageResource(WealthViewerFrame.class, "camera.png"));
+		}
+		catch (RuntimeException e)
+		{
+			// A missing icon must never stop the window from opening.
+			return null;
+		}
+	}
 	private final JComboBox<String> snapshotAccountBox = new JComboBox<>();
 	private final List<AccountRecord> snapshotAccounts = new ArrayList<>();
 	private boolean populatingSnapshotBox;
@@ -1398,6 +1416,7 @@ class WealthViewerFrame extends JFrame
 		membershipFilter.addActionListener(e -> applyFilter());
 		searchRow.add(membershipFilter);
 		JButton shotAll = new JButton("Screenshot all items...");
+		shotAll.setIcon(CAMERA_ICON);
 		shotAll.setToolTipText("Draw every item held across the roster as one bank image");
 		shotAll.addActionListener(e -> screenshotAllItems());
 		searchRow.add(Box.createHorizontalStrut(10));
@@ -1442,6 +1461,7 @@ class WealthViewerFrame extends JFrame
 		offerSummaryLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 
 		JButton shotGe = new JButton("Screenshot offers...");
+		shotGe.setIcon(CAMERA_ICON);
 		shotGe.setToolTipText("Draw every tracked Grand Exchange slot as one image");
 		shotGe.addActionListener(e -> screenshotOffers());
 
