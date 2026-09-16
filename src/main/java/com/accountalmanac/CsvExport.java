@@ -92,6 +92,11 @@ final class CsvExport
 				String name = NameMasker.display(a, privacy);
 				for (BankItem item : a.bankItems)
 				{
+					if (item.quantity <= 0)
+					{
+						// Bank placeholder, not a held stack.
+						continue;
+					}
 					csv.row(name, item.id, item.name, item.members, item.quantity,
 						item.unitPrice, item.totalValue(), item.haPrice,
 						a.hasBankSnapshot() ? a.lastSnapshotAt : null);

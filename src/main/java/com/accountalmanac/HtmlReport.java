@@ -220,6 +220,11 @@ final class HtmlReport
 			String name = NameMasker.display(a, privacy);
 			for (BankItem i : a.bankItems)
 			{
+				if (i.quantity <= 0)
+				{
+					// Bank placeholder, not a held stack.
+					continue;
+				}
 				w.write("<tr>");
 				td(w, name);
 				td(w, i.name);

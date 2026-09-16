@@ -2169,7 +2169,9 @@ class WealthViewerFrame extends JFrame
 					boolean qualifies = randomEvents
 						? RandomEventItems.isRandomEventItem(item.id)
 						: RandomEventItems.isBurnt(item.name);
-					if (!qualifies)
+					// A placeholder sits at zero: the item is not held, so it
+					// counts towards neither the tally nor the holder count.
+					if (!qualifies || item.quantity <= 0)
 					{
 						continue;
 					}

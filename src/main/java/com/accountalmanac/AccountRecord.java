@@ -168,6 +168,13 @@ class AccountRecord
 		{
 			bankItems = new ArrayList<>();
 		}
+		else
+		{
+			// The game stores a bank placeholder as the item with a quantity
+			// of zero. Nothing is actually held, so it is dropped here rather
+			// than left for every view, export and count to remember.
+			bankItems.removeIf(item -> item == null || item.quantity <= 0);
+		}
 		if (geOffers == null)
 		{
 			geOffers = new ArrayList<>();
@@ -260,9 +267,49 @@ class AccountRecord
 		return hasQuestPoints() ? questPoints + "/" + questPointsMax : "-";
 	}
 
+	/** {@code done/total}, or a dash when the total has never been read. */
+	private static String fraction(int done, int total)
+	{
+		return total > 0 ? done + "/" + total : "-";
+	}
+
+	String questsLabel()
+	{
+		return fraction(questsCompleted, questsTotal);
+	}
+
+	String achievementsLabel()
+	{
+		return fraction(achievementsCompleted, achievementsTotal);
+	}
+
+	String combatTasksLabel()
+	{
+		return fraction(combatTasksCompleted, combatTasksTotal);
+	}
+
+	String collectionsLabel()
+	{
+		return fraction(collectionsLogged, collectionsTotal);
+	}
+
 	boolean hasBankSnapshot()
 	{
 		return lastSnapshotAt > 0L;
+	}
+
+	/** Stacks actually held. Placeholders sit at zero and do not count. */
+	int bankStackCount()
+	{
+		int stacks = 0;
+		for (BankItem item : bankItems)
+		{
+			if (item != null && item.quantity > 0)
+			{
+				stacks++;
+			}
+		}
+		return stacks;
 	}
 
 	/** Most recent thing that happened to this account - a login or a bank snapshot, whichever is later. */
