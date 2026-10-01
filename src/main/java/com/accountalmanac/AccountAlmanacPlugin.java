@@ -594,6 +594,19 @@ public class AccountAlmanacPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * A price from the client as the int the stored files hold.
+	 *
+	 * <p>RuneLite widened its price methods to long in 1.13. The game caps a
+	 * Grand Exchange price at {@link Integer#MAX_VALUE} and every stored price
+	 * is an int, so a larger figure is clamped rather than silently wrapping
+	 * round to a negative one.
+	 */
+	private static int price(long price)
+	{
+		return (int) Math.max(0L, Math.min(Integer.MAX_VALUE, price));
+	}
+
 	/** {@code "17/855"} as {@code [17, 855]}, or null when it is not a count. */
 	private static int[] parseFraction(String text)
 	{
@@ -719,7 +732,7 @@ public class AccountAlmanacPlugin extends Plugin
 			}
 
 			int canonicalId = itemManager.canonicalize(item.getId());
-			int unitPrice = itemManager.getItemPrice(canonicalId);
+			int unitPrice = price(itemManager.getItemPrice(canonicalId));
 			value += (long) unitPrice * item.getQuantity();
 
 			BankItem existing = merged.get(canonicalId);
@@ -760,7 +773,7 @@ public class AccountAlmanacPlugin extends Plugin
 		record.slot = event.getSlot();
 		record.state = offer.getState().name();
 		record.itemId = offer.getItemId();
-		record.pricePerItem = offer.getPrice();
+		record.pricePerItem = price(offer.getPrice());
 		record.totalQuantity = offer.getTotalQuantity();
 		record.quantitySold = offer.getQuantitySold();
 		record.spent = offer.getSpent();
@@ -771,7 +784,7 @@ public class AccountAlmanacPlugin extends Plugin
 			record.itemName = itemManager.getItemComposition(record.itemId).getName();
 			// Captured now, on the client thread, so stock in a sell offer is
 			// valued at what it is worth rather than at what it was listed for.
-			record.marketPrice = itemManager.getItemPrice(record.itemId);
+			record.marketPrice = price(itemManager.getItemPrice(record.itemId));
 		}
 
 		// Swap in the new state and get back what was there, so the change can
@@ -934,7 +947,7 @@ public class AccountAlmanacPlugin extends Plugin
 				{
 					alchPrices.put(id, ha);
 				}
-				int price = itemManager.getItemPrice(id);
+				int price = price(itemManager.getItemPrice(id));
 				// A zero is never published. It means one of two things and
 				// they are indistinguishable here: an untradeable item, which
 				// already stores 0 and so needs no update, or an item cache
