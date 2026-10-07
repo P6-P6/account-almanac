@@ -5,7 +5,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -38,6 +40,15 @@ class GeEventStore
 	private volatile boolean dirty;
 
 	/**
+	 * The file's timestamp as of our last read or write. Anything newer is
+	 * another client's trades, which are merged in before we write over them.
+	 */
+	private long diskStamp;
+
+	/** The cap the last append used, so a merge trims to the same size. */
+	private int cap = 100_000;
+
+	/**
 	 * Bumped on every change to the log.
 	 *
 	 * <p>Lets a reader tell "nothing has changed" apart from "I should re-read"
@@ -68,6 +79,7 @@ class GeEventStore
 			{
 				data = JsonFile.read(dataFile, gson, GeEventData.class, GeEventData::new);
 				data.normalise();
+				diskStamp = dataFile.lastModified();
 				revision++;
 			}
 			if (onLoaded != null)
@@ -97,7 +109,7 @@ class GeEventStore
 
 		data.events.addAll(events);
 
-		int cap = Math.max(100, maxEvents);
+		cap = Math.max(100, maxEvents);
 		if (data.events.size() > cap)
 		{
 			// subList().clear() on an ArrayList removes the range in one
@@ -163,18 +175,41 @@ class GeEventStore
 	 */
 	boolean flushIfDirty()
 	{
+		// Locked for the whole read-merge-write, so no other client can write
+		// between this client reading the file and replacing it.
+		return JsonFile.locked(dataFile, this::flushLocked);
+	}
+
+	private boolean flushLocked()
+	{
+		// This write replaces the whole log, so when there is something to write
+		// the file is read first regardless of its timestamp: two clients can
+		// write inside the same millisecond. Otherwise the timestamp decides
+		// whether anything is worth reading.
+		boolean writing;
+		synchronized (this)
+		{
+			writing = dirty;
+		}
+		GeEventData external = writing ? readFromDisk() : readIfChangedExternally();
+
 		String json;
 		synchronized (this)
 		{
+			boolean adopted = external != null && mergeLocked(external);
 			if (!dirty)
 			{
-				return false;
+				return adopted;
 			}
 			json = serialiseLocked();
 		}
 
 		if (JsonFile.writeText(dataFile, json))
 		{
+			synchronized (this)
+			{
+				diskStamp = dataFile.lastModified();
+			}
 			return true;
 		}
 		synchronized (this)
@@ -183,6 +218,83 @@ class GeEventStore
 			dirty = true;
 		}
 		return false;
+	}
+
+	private GeEventData readFromDisk()
+	{
+		GeEventData loaded = JsonFile.read(dataFile, gson, GeEventData.class, GeEventData::new);
+		loaded.normalise();
+		synchronized (this)
+		{
+			diskStamp = dataFile.lastModified();
+		}
+		return loaded;
+	}
+
+	/** The file as another client left it, or {@code null} when we wrote it last. */
+	private GeEventData readIfChangedExternally()
+	{
+		long modified = dataFile.lastModified();
+		synchronized (this)
+		{
+			if (modified <= 0L || modified <= diskStamp)
+			{
+				return null;
+			}
+			diskStamp = modified;
+		}
+		return readFromDisk();
+	}
+
+	/**
+	 * Folds another client's log into this one.
+	 *
+	 * <p>The log only ever gains entries, so the two sides are unioned rather
+	 * than one replacing the other - each client records the account it has
+	 * open. An event is the same event when every field a trade is described by
+	 * matches, which is what stops a merge duplicating what both sides already
+	 * hold.
+	 *
+	 * @return {@code true} if anything was taken on
+	 */
+	private boolean mergeLocked(GeEventData disk)
+	{
+		Set<String> taken = new HashSet<>();
+		for (GeEvent event : data.events)
+		{
+			taken.add(identity(event));
+		}
+
+		boolean changed = false;
+		for (GeEvent event : disk.events)
+		{
+			if (taken.add(identity(event)))
+			{
+				data.events.add(event);
+				changed = true;
+			}
+		}
+
+		if (!changed)
+		{
+			return false;
+		}
+
+		data.events.sort(Comparator.comparingLong(event -> event.at));
+		if (data.events.size() > cap)
+		{
+			data.events.subList(0, data.events.size() - cap).clear();
+		}
+		revision++;
+		return true;
+	}
+
+	/** Everything that distinguishes one logged trade from another. */
+	private static String identity(GeEvent event)
+	{
+		return event.at + "|" + event.accountHash + "|" + event.type + "|" + event.slot
+			+ "|" + event.itemId + "|" + event.quantity + "|" + event.pricePerItem
+			+ "|" + event.totalValue;
 	}
 
 	/** Serialises the current state. Caller must hold the monitor. */

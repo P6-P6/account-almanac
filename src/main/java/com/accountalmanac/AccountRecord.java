@@ -136,6 +136,16 @@ class AccountRecord
 	int collectionsLogged;
 	int collectionsTotal;
 
+	/**
+	 * When the user last edited this account by hand - its note, label,
+	 * category, hidden or banned flag, or an overridden display name.
+	 *
+	 * <p>Only used to settle those fields when two clients have both written
+	 * the file: the most recent edit wins. Captured fields are settled by their
+	 * own timestamps instead, so a stale copy cannot undo a live session.
+	 */
+	long editedAt;
+
 	/** Total value of {@link #bankItems} as of {@link #lastUpdated}. */
 	long bankValue;
 	long lastUpdated;

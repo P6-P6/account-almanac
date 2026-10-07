@@ -3,8 +3,12 @@ package com.accountalmanac;
 import com.google.gson.Gson;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
@@ -38,6 +42,12 @@ class HistoryStore
 	private HistoryData data = new HistoryData();
 	private volatile boolean dirty;
 
+	/**
+	 * The file's timestamp as of our last read or write. Anything newer is
+	 * another client's work, which is merged in before we write over it.
+	 */
+	private long diskStamp;
+
 	@Inject
 	HistoryStore(Gson gson, ScheduledExecutorService executor)
 	{
@@ -54,6 +64,7 @@ class HistoryStore
 			{
 				data = JsonFile.read(dataFile, gson, HistoryData.class, HistoryData::new);
 				data.normalise();
+				diskStamp = dataFile.lastModified();
 			}
 			if (onLoaded != null)
 			{
@@ -206,18 +217,41 @@ class HistoryStore
 	 */
 	boolean flushIfDirty()
 	{
+		// Locked for the whole read-merge-write, so no other client can write
+		// between this client reading the file and replacing it.
+		return JsonFile.locked(dataFile, this::flushLocked);
+	}
+
+	private boolean flushLocked()
+	{
+		// This write replaces the whole file, so when there is something to
+		// write the file is read first regardless of its timestamp: two clients
+		// can write inside the same millisecond. Otherwise the timestamp
+		// decides whether anything is worth reading.
+		boolean writing;
+		synchronized (this)
+		{
+			writing = dirty;
+		}
+		HistoryData external = writing ? readFromDisk() : readIfChangedExternally();
+
 		String json;
 		synchronized (this)
 		{
+			boolean adopted = external != null && mergeLocked(external);
 			if (!dirty)
 			{
-				return false;
+				return adopted;
 			}
 			json = serialiseLocked();
 		}
 
 		if (JsonFile.writeText(dataFile, json))
 		{
+			synchronized (this)
+			{
+				diskStamp = dataFile.lastModified();
+			}
 			return true;
 		}
 		synchronized (this)
@@ -226,6 +260,97 @@ class HistoryStore
 			dirty = true;
 		}
 		return false;
+	}
+
+	private HistoryData readFromDisk()
+	{
+		HistoryData loaded = JsonFile.read(dataFile, gson, HistoryData.class, HistoryData::new);
+		loaded.normalise();
+		synchronized (this)
+		{
+			diskStamp = dataFile.lastModified();
+		}
+		return loaded;
+	}
+
+	/** The file as another client left it, or {@code null} when we wrote it last. */
+	private HistoryData readIfChangedExternally()
+	{
+		long modified = dataFile.lastModified();
+		synchronized (this)
+		{
+			if (modified <= 0L || modified <= diskStamp)
+			{
+				return null;
+			}
+			diskStamp = modified;
+		}
+		return readFromDisk();
+	}
+
+	/**
+	 * Folds another client's history into this one.
+	 *
+	 * <p>History only ever gains points, so the two sides are unioned by
+	 * timestamp rather than one winning: each client records the accounts it
+	 * has open, and the file has to end up with all of them. Baselines are the
+	 * exception, where the more recent reading wins.
+	 *
+	 * @return {@code true} if anything was taken on
+	 */
+	private boolean mergeLocked(HistoryData disk)
+	{
+		boolean changed = false;
+
+		Map<Long, AccountHistory> mine = new HashMap<>();
+		for (AccountHistory history : data.histories)
+		{
+			mine.put(history.accountHash, history);
+		}
+
+		for (AccountHistory theirs : disk.histories)
+		{
+			AccountHistory ours = mine.get(theirs.accountHash);
+			if (ours == null)
+			{
+				data.histories.add(theirs);
+				changed = true;
+				continue;
+			}
+
+			Set<Long> taken = new HashSet<>();
+			for (HistorySnapshot snapshot : ours.snapshots)
+			{
+				taken.add(snapshot.at);
+			}
+
+			boolean added = false;
+			for (HistorySnapshot snapshot : theirs.snapshots)
+			{
+				if (taken.add(snapshot.at))
+				{
+					ours.snapshots.add(snapshot);
+					added = true;
+				}
+			}
+			if (added)
+			{
+				ours.snapshots.sort(Comparator.comparingLong(snapshot -> snapshot.at));
+				changed = true;
+			}
+		}
+
+		for (Map.Entry<String, PricePoint> entry : disk.priceBaselines.entrySet())
+		{
+			PricePoint ours = data.priceBaselines.get(entry.getKey());
+			if (ours == null || entry.getValue().at > ours.at)
+			{
+				data.priceBaselines.put(entry.getKey(), entry.getValue());
+				changed = true;
+			}
+		}
+
+		return changed;
 	}
 
 	/** Serialises the current state. Caller must hold the monitor. */

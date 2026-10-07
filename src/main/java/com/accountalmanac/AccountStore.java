@@ -59,6 +59,19 @@ class AccountStore
 	/** When the file was last written or read. Guarded by this. */
 	private long lastWrittenAt;
 
+	/**
+	 * The file's own timestamp as of our last read or write.
+	 *
+	 * <p>Anything newer means another client has written since, and its copy is
+	 * merged in before we write over the file. Every save rewrites the whole
+	 * roster, so without this the last client to save erases whatever the
+	 * others recorded while it was open.
+	 */
+	private long diskStamp;
+
+	/** How long a deletion is remembered for, so a merge cannot undo it. */
+	private static final long TOMBSTONE_MILLIS = java.util.concurrent.TimeUnit.DAYS.toMillis(30);
+
 	@Inject
 	AccountStore(Gson gson, ScheduledExecutorService executor)
 	{
@@ -77,6 +90,7 @@ class AccountStore
 				// Memory now matches the file, so the skill-save interval
 				// counts from here rather than from the epoch.
 				lastWrittenAt = System.currentTimeMillis();
+				diskStamp = dataFile.lastModified();
 			}
 			if (onLoaded != null)
 			{
@@ -169,14 +183,40 @@ class AccountStore
 
 	private boolean flush(boolean includeSkills, long now)
 	{
+		// Locked for the whole read-merge-write, so no other client can write
+		// between this client reading the file and replacing it.
+		return JsonFile.locked(dataFile, () -> flushLocked(includeSkills, now));
+	}
+
+	private boolean flushLocked(boolean includeSkills, long now)
+	{
+		boolean writing;
+		synchronized (this)
+		{
+			writing = dirty || (skillsDirty
+				&& (includeSkills || now - lastWrittenAt >= SKILL_SAVE_INTERVAL_MILLIS));
+		}
+
+		// About to replace the whole file, so read it first no matter what the
+		// timestamp says: two clients can write inside the same millisecond,
+		// and the loser of that race would otherwise be erased. When there is
+		// nothing of ours to write, the timestamp is enough to decide.
+		//
+		// Read outside the monitor either way: parsing a large roster takes
+		// long enough that holding the lock would stall the client thread.
+		TrackerData external = writing ? readFromDisk() : readIfChangedExternally();
+
 		String json;
 		synchronized (this)
 		{
+			boolean adopted = external != null && mergeLocked(external, now);
 			boolean skillsDue = skillsDirty
 				&& (includeSkills || now - lastWrittenAt >= SKILL_SAVE_INTERVAL_MILLIS);
 			if (!dirty && !skillsDue)
 			{
-				return false;
+				// Nothing of ours to write, but another client's work was taken
+				// on, so the caller still repaints.
+				return adopted;
 			}
 			// Serialised while holding the monitor so the snapshot is
 			// consistent, but the disk write happens after releasing it: the
@@ -193,6 +233,7 @@ class AccountStore
 			synchronized (this)
 			{
 				lastWrittenAt = now;
+				diskStamp = dataFile.lastModified();
 			}
 			return true;
 		}
@@ -429,6 +470,7 @@ class AccountStore
 	{
 		AccountRecord record = findOrCreate(accountHash);
 		record.category = AccountCategory.normalise(category);
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
@@ -436,6 +478,7 @@ class AccountStore
 	{
 		AccountRecord record = findOrCreate(accountHash);
 		record.hidden = hidden;
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
@@ -449,6 +492,7 @@ class AccountStore
 		AccountRecord record = findOrCreate(accountHash);
 		record.banned = banned;
 		record.bannedAt = banned ? System.currentTimeMillis() : 0L;
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
@@ -487,6 +531,7 @@ class AccountStore
 	{
 		AccountRecord record = findOrCreate(accountHash);
 		record.displayName = displayName == null ? "" : displayName;
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
@@ -494,6 +539,7 @@ class AccountStore
 	{
 		AccountRecord record = findOrCreate(accountHash);
 		record.loginLabel = loginLabel == null ? "" : loginLabel;
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
@@ -501,12 +547,16 @@ class AccountStore
 	{
 		AccountRecord record = findOrCreate(accountHash);
 		record.note = note == null ? "" : note;
+		record.editedAt = System.currentTimeMillis();
 		saveAsync();
 	}
 
 	synchronized void removeAccount(long accountHash)
 	{
 		data.accounts.removeIf(r -> r.accountHash == accountHash);
+		// Remembered, or a second client still holding the account writes it
+		// straight back on its next save.
+		data.removedAccounts.put(Long.toString(accountHash), System.currentTimeMillis());
 		saveAsync();
 	}
 
@@ -676,6 +726,160 @@ class AccountStore
 			markDirty();
 		}
 		return changed;
+	}
+
+	/** The file as another client left it, or {@code null} when we wrote it last. */
+	private TrackerData readIfChangedExternally()
+	{
+		long modified = dataFile.lastModified();
+		synchronized (this)
+		{
+			if (modified <= 0L || modified <= diskStamp)
+			{
+				return null;
+			}
+			diskStamp = modified;
+		}
+		return readFromDisk();
+	}
+
+	/**
+	 * Folds another client's copy of the roster into this one.
+	 *
+	 * <p>Two clients are never logged into the same account, so for any account
+	 * one side holds a live session and the other a copy taken before that
+	 * client started. Each part of a record is settled by its own timestamp -
+	 * the bank by when it was last seen, identity and skills by the last login,
+	 * offers by when the slots were reported - and the newer side wins. Fields
+	 * the user edits by hand go by {@link AccountRecord#editedAt} instead.
+	 *
+	 * @return {@code true} if anything was taken on
+	 */
+	private boolean mergeLocked(TrackerData disk, long now)
+	{
+		boolean changed = false;
+
+		for (Map.Entry<String, Long> entry : disk.removedAccounts.entrySet())
+		{
+			Long ours = data.removedAccounts.get(entry.getKey());
+			if (ours == null || entry.getValue() > ours)
+			{
+				data.removedAccounts.put(entry.getKey(), entry.getValue());
+				changed = true;
+			}
+		}
+		data.removedAccounts.values().removeIf(at -> now - at > TOMBSTONE_MILLIS);
+
+		Map<Long, AccountRecord> mine = new HashMap<>();
+		for (AccountRecord record : data.accounts)
+		{
+			mine.put(record.accountHash, record);
+		}
+
+		for (AccountRecord theirs : disk.accounts)
+		{
+			AccountRecord ours = mine.get(theirs.accountHash);
+			if (ours == null)
+			{
+				if (deletedAfter(theirs))
+				{
+					continue;
+				}
+				data.accounts.add(theirs);
+				changed = true;
+				continue;
+			}
+			changed |= mergeRecord(ours, theirs);
+		}
+
+		// A deletion recorded by either side applies to both.
+		changed |= data.accounts.removeIf(this::deletedAfter);
+		return changed;
+	}
+
+	/** Whether this account was deleted after the last thing it recorded. */
+	private boolean deletedAfter(AccountRecord record)
+	{
+		Long removedAt = data.removedAccounts.get(Long.toString(record.accountHash));
+		return removedAt != null && removedAt >= Math.max(record.lastActivityAt(), record.editedAt);
+	}
+
+	private static boolean mergeRecord(AccountRecord ours, AccountRecord theirs)
+	{
+		boolean changed = false;
+
+		if (theirs.lastLoginAt > ours.lastLoginAt)
+		{
+			ours.lastLoginAt = theirs.lastLoginAt;
+			ours.displayName = theirs.displayName;
+			ours.loginName = theirs.loginName;
+			ours.accountType = theirs.accountType;
+			ours.playtimeMinutes = theirs.playtimeMinutes;
+			ours.questPoints = theirs.questPoints;
+			ours.questPointsMax = theirs.questPointsMax;
+			ours.questsCompleted = theirs.questsCompleted;
+			ours.questsTotal = theirs.questsTotal;
+			ours.achievementsCompleted = theirs.achievementsCompleted;
+			ours.achievementsTotal = theirs.achievementsTotal;
+			ours.combatTasksCompleted = theirs.combatTasksCompleted;
+			ours.combatTasksTotal = theirs.combatTasksTotal;
+			ours.collectionsLogged = theirs.collectionsLogged;
+			ours.collectionsTotal = theirs.collectionsTotal;
+			ours.skillLevels = theirs.skillLevels;
+			ours.skillXp = theirs.skillXp;
+			ours.combatLevel = theirs.combatLevel;
+			changed = true;
+		}
+		else if (theirs.lastLoginAt == ours.lastLoginAt && theirs.totalXp() > ours.totalXp())
+		{
+			// The same session seen by both: more experience means seen later.
+			ours.skillLevels = theirs.skillLevels;
+			ours.skillXp = theirs.skillXp;
+			ours.combatLevel = theirs.combatLevel;
+			changed = true;
+		}
+
+		if (theirs.lastSnapshotAt > ours.lastSnapshotAt)
+		{
+			ours.bankItems = theirs.bankItems;
+			ours.bankValue = theirs.bankValue;
+			ours.lastUpdated = theirs.lastUpdated;
+			ours.lastSnapshotAt = theirs.lastSnapshotAt;
+			changed = true;
+		}
+
+		if (newestOfferAt(theirs) > newestOfferAt(ours))
+		{
+			ours.geOffers = theirs.geOffers;
+			changed = true;
+		}
+
+		// Last, so an explicit edit beats a name captured on login.
+		if (theirs.editedAt > ours.editedAt)
+		{
+			ours.editedAt = theirs.editedAt;
+			ours.displayName = theirs.displayName;
+			ours.loginLabel = theirs.loginLabel;
+			ours.note = theirs.note;
+			ours.category = theirs.category;
+			ours.hidden = theirs.hidden;
+			ours.banned = theirs.banned;
+			ours.bannedAt = theirs.bannedAt;
+			changed = true;
+		}
+
+		return changed;
+	}
+
+	/** When this account's Grand Exchange slots were last reported. */
+	private static long newestOfferAt(AccountRecord record)
+	{
+		long newest = 0L;
+		for (GrandExchangeRecord offer : record.geOffers)
+		{
+			newest = Math.max(newest, offer.updatedAt);
+		}
+		return newest;
 	}
 
 	private AccountRecord findOrCreate(long accountHash)

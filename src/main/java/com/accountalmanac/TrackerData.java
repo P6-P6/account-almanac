@@ -1,7 +1,9 @@
 package com.accountalmanac;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Root object persisted to {@code accounts.json}.
@@ -19,8 +21,22 @@ class TrackerData
 
 	List<AccountRecord> accounts = new ArrayList<>();
 
+	/**
+	 * Accounts the user deleted, as account hash to when it happened.
+	 *
+	 * <p>Without this a second client still holding the account in memory would
+	 * write it straight back on its next save, and a deleted account would keep
+	 * reappearing. Entries are forgotten after a month, by which time every
+	 * client has long since reloaded.
+	 */
+	Map<String, Long> removedAccounts = new HashMap<>();
+
 	void normalise()
 	{
+		if (removedAccounts == null)
+		{
+			removedAccounts = new HashMap<>();
+		}
 		if (accounts == null)
 		{
 			accounts = new ArrayList<>();
