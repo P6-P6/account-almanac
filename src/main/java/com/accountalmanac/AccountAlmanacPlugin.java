@@ -21,6 +21,7 @@ import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
+import net.runelite.api.WorldType;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
@@ -676,15 +677,30 @@ public class AccountAlmanacPlugin extends Plugin
 	}
 
 	/**
-	 * Ironman variant, read from the game's own account-type varbit.
+	 * Ironman variant, read from the game's own account-type varbit, or
+	 * Hardcore Worlds, read from the world being played on.
 	 *
 	 * <p>Replaces the deprecated {@code Client.getAccountType()}, which read
 	 * this same varbit. The names returned are the ones that method's enum
 	 * used, so values stored by earlier versions keep matching.
+	 *
+	 * <p>Hardcore Worlds characters are mains, not ironmen, so the ironman
+	 * varbit reads 0 for them. They share the main game's save profile (and
+	 * so the same account hash); what sets them apart is the world. Only
+	 * Death's Office can move a character between the two, and a character
+	 * that transfers out after a death lands on normal worlds, so the next
+	 * login there correctly records it as normal again. The {@code HC_MAIN}
+	 * varbit is not read: its values are undocumented, and guessing would
+	 * risk mislabelling an account.
 	 */
 	private String readAccountType()
 	{
-		switch (client.getVarbitValue(VarbitID.IRONMAN))
+		int ironman = client.getVarbitValue(VarbitID.IRONMAN);
+		if (ironman == 0 && client.getWorldType().contains(WorldType.HARDCORE_MAIN))
+		{
+			return "HARDCORE_MAIN";
+		}
+		switch (ironman)
 		{
 			case 1:
 				return "IRONMAN";

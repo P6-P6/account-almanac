@@ -29,6 +29,11 @@ import lombok.extern.slf4j.Slf4j;
  * referencing the owning plugin class, so this does not compile-depend on
  * another plugin's internals.
  *
+ * <p>Hardcore Worlds ({@code "HARDCORE_MAIN"}, RuneLite's name for the
+ * mode) uses the hiscore panel's {@code hardcore_main.png}, added in
+ * RuneLite 1.13.6; on an older client it is absent and the "HCW" text badge
+ * is shown instead.
+ *
  * <p>Group ironman has no bundled icon, so those keep the text badge. Every
  * lookup falls back to text if the resource is missing, because an icon that
  * fails to load must degrade to a readable label rather than to nothing.
@@ -47,7 +52,7 @@ final class AccountTypeBadge
 	}
 
 	/**
-	 * Helm icon for an account type, or {@code null} when there is none - a
+	 * Account type icon, or {@code null} when there is none - a
 	 * normal account, a group ironman, or a resource that failed to load.
 	 * Callers fall back to {@link #shortLabel}.
 	 */
@@ -95,6 +100,8 @@ final class AccountTypeBadge
 				return "hardcore_ironman.png";
 			case "ULTIMATE_IRONMAN":
 				return "ultimate_ironman.png";
+			case "HARDCORE_MAIN":
+				return "hardcore_main.png";
 			default:
 				// Group ironman variants have no bundled art.
 				return null;
@@ -116,6 +123,8 @@ final class AccountTypeBadge
 				return "GIM";
 			case "HARDCORE_GROUP_IRONMAN":
 				return "HCGIM";
+			case "HARDCORE_MAIN":
+				return "HCW";
 			default:
 				return "";
 		}
@@ -138,6 +147,8 @@ final class AccountTypeBadge
 				return "Group Ironman";
 			case "HARDCORE_GROUP_IRONMAN":
 				return "Hardcore Group Ironman";
+			case "HARDCORE_MAIN":
+				return "Hardcore Worlds";
 			default:
 				return "-";
 		}
@@ -157,12 +168,15 @@ final class AccountTypeBadge
 				return new Color(46, 125, 87);
 			case "HARDCORE_GROUP_IRONMAN":
 				return new Color(150, 40, 40);
+			case "HARDCORE_MAIN":
+				return new Color(110, 20, 40);
 			default:
 				return Color.GRAY;
 		}
 	}
 
-	static boolean isIronmanVariant(String accountType)
+	/** True for any type that gets a marker: the ironman variants and Hardcore Worlds. */
+	static boolean hasBadge(String accountType)
 	{
 		return !shortLabel(accountType).isEmpty();
 	}

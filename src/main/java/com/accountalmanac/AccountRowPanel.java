@@ -120,14 +120,14 @@ class AccountRowPanel extends JPanel
 		name.setForeground(ColorScheme.BRAND_ORANGE);
 		name.setFont(name.getFont().deriveFont(Font.BOLD, 13f));
 
-		boolean hasIronBadge = AccountTypeBadge.isIronmanVariant(record.accountType);
-		if (hasIronBadge || record.banned || record.hidden)
+		boolean hasTypeBadge = AccountTypeBadge.hasBadge(record.accountType);
+		if (hasTypeBadge || record.banned || record.hidden)
 		{
 			JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
 			nameRow.setOpaque(false);
 			nameRow.setAlignmentX(LEFT_ALIGNMENT);
 			nameRow.add(name);
-			if (hasIronBadge)
+			if (hasTypeBadge)
 			{
 				nameRow.add(buildTypeBadge());
 			}
@@ -273,7 +273,8 @@ class AccountRowPanel extends JPanel
 	 */
 	/**
 	 * The account type marker: the game's own helm icon where one exists,
-	 * otherwise the text pill. Group ironman has no bundled art, and a failed
+	 * otherwise the text pill. Group ironman has no bundled art (and Hardcore
+	 * Worlds has none before RuneLite 1.13.6), and a failed
 	 * image load returns null, so both fall through to text rather than
 	 * leaving a gap where the marker should be.
 	 */
