@@ -80,9 +80,10 @@ replaced with stable stand-in names, or hidden entirely. This is display only
 - the stored files always keep the real names, so switching back restores them
 immediately, and nothing is lost by turning it on.
 
-Only the Jagex launcher's account name is recorded. The client's own login
-field is deliberately never read, because on the classic login flow it holds
-whatever was typed to sign in, which is frequently an email address.
+The login name column shows the Jagex launcher's account name. For accounts
+that sign in on the classic login screen, it shows what was typed in the
+login box instead, which may be an email address. It is stored only in the
+local roster file, and the name privacy setting masks it on screen.
 
 ## Where your data lives
 

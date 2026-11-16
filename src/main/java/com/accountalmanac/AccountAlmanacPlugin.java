@@ -652,21 +652,24 @@ public class AccountAlmanacPlugin extends Plugin
 	 * internally to key per-account config profiles, so it is the correct,
 	 * currently-supported way to identify a Jagex account. It is preferred.
 	 *
-	 * <p>There used to be a fallback to {@code getUsername()}, which reads the
-	 * client's own login screen field for accounts not using the launcher. It
-	 * was removed: on the classic login flow that field holds whatever was
-	 * typed to log in, which is frequently an email address, and a tracker has
-	 * no business recording one. The launcher name is an account label and
-	 * carries no such risk.
+	 * <p>Accounts that log in on the classic login screen have no launcher
+	 * name, so {@code getUsername()} - what was typed in the login box, a
+	 * username or an email address - is used instead. It stays in the local
+	 * roster file and can be masked on screen with the name privacy setting.
 	 *
-	 * <p>This can come back blank on a non-launcher login. An empty result is
-	 * discarded by the store rather than overwriting a value captured earlier,
-	 * and it is never inferred from the display name - a guessed login name
-	 * would be worse than no login name at all.
+	 * <p>An empty result is discarded by the store rather than overwriting a
+	 * value captured earlier, and it is never inferred from the display name -
+	 * a guessed login name would be worse than no login name at all.
 	 */
 	private String readLoginName()
 	{
-		return readLauncherName();
+		String launcherName = readLauncherName();
+		if (!launcherName.isEmpty())
+		{
+			return launcherName;
+		}
+		String typed = client.getUsername();
+		return typed == null ? "" : typed.trim();
 	}
 
 	/** The Jagex launcher's account name, which is available before login too. */
